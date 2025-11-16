@@ -506,15 +506,6 @@ export class DatabaseStorage implements IStorage {
     return await Promise.all(analyticsPromises);
   }
 
-  async updateBusinessAccountOpenAIKey(id: string, openaiApiKey: string): Promise<BusinessAccount> {
-    const [account] = await db
-      .update(businessAccounts)
-      .set({ openaiApiKey, updatedAt: new Date() })
-      .where(eq(businessAccounts.id, id))
-      .returning();
-    return account;
-  }
-
   async getBusinessAccountOpenAIKey(id: string): Promise<string | null> {
     const [account] = await db
       .select({ openaiApiKey: businessAccounts.openaiApiKey })

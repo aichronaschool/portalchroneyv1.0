@@ -21,6 +21,7 @@ import SuperAdmin from "@/pages/SuperAdmin";
 import SuperAdminSettings from "@/pages/SuperAdminSettings";
 import SuperAdminInsights from "@/pages/SuperAdminInsights";
 import SuperAdminDemo from "@/pages/SuperAdminDemo";
+import SuperAdminApiKeys from "@/pages/SuperAdminApiKeys";
 import PublicDemo from "@/pages/PublicDemo";
 import PublicChat from "@/pages/PublicChat";
 import Login from "@/pages/Login";
@@ -102,6 +103,7 @@ function AppContent({ currentUser }: { currentUser: MeResponseDto | null }) {
                 <Route path="/admin/insights" component={SuperAdminInsights} />
                 <Route path="/super-admin/insights" component={SuperAdminInsights} />
                 <Route path="/super-admin/demo" component={SuperAdminDemo} />
+                <Route path="/super-admin/api-keys" component={SuperAdminApiKeys} />
                 <Route path="/super-admin/settings" component={SuperAdminSettings} />
               </>
             ) : (

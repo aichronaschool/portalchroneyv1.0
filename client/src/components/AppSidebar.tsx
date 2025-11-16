@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
-import { Package, HelpCircle, ShieldCheck, LogOut, Contact, Home, Building2, Sparkles, Settings, Brain, BarChart3, MessageSquare, ShoppingBag, Calendar, GraduationCap, ChevronRight, Presentation, FileText } from "lucide-react";
+import { Package, HelpCircle, ShieldCheck, LogOut, Contact, Home, Building2, Sparkles, Settings, Brain, BarChart3, MessageSquare, ShoppingBag, Calendar, GraduationCap, ChevronRight, Presentation, FileText, Key } from "lucide-react";
 import type { MeResponseDto } from "@shared/dto";
 
 interface AppSidebarProps {
@@ -144,6 +144,16 @@ export function AppSidebar({ user }: AppSidebarProps) {
                   >
                     <Presentation className="w-4 h-4" />
                     <span>Demo</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    onClick={() => setLocation("/super-admin/api-keys")}
+                    isActive={location === "/super-admin/api-keys"}
+                    data-testid="link-super-admin-api-keys"
+                  >
+                    <Key className="w-4 h-4" />
+                    <span>API Keys</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
                 <SidebarMenuItem>

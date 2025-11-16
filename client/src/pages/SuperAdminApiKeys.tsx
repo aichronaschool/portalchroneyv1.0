@@ -35,16 +35,30 @@ const currencySchema = z.object({
 type ApiKeyFormData = z.infer<typeof apiKeySchema>;
 type CurrencyFormData = z.infer<typeof currencySchema>;
 
+interface BusinessAccount {
+  id: string;
+  name: string;
+  website: string | null;
+}
+
+interface ApiSettings {
+  businessAccountId: string;
+  businessName: string;
+  openaiApiKey: string | null;
+  hasApiKey: boolean;
+  currency: string;
+}
+
 export default function SuperAdminApiKeys() {
   const { toast } = useToast();
   const [selectedBusinessId, setSelectedBusinessId] = useState<string>("");
   const [showApiKey, setShowApiKey] = useState(false);
 
-  const { data: businessAccounts = [] } = useQuery({
+  const { data: businessAccounts = [] } = useQuery<BusinessAccount[]>({
     queryKey: ["/api/business-accounts"],
   });
 
-  const { data: apiSettings } = useQuery({
+  const { data: apiSettings } = useQuery<ApiSettings>({
     queryKey: ["/api/business-accounts", selectedBusinessId, "api-settings"],
     enabled: !!selectedBusinessId,
   });
@@ -59,15 +73,16 @@ export default function SuperAdminApiKeys() {
   const currencyForm = useForm<CurrencyFormData>({
     resolver: zodResolver(currencySchema),
     defaultValues: {
-      currency: apiSettings?.currency || "USD",
+      currency: "USD",
     },
   });
 
   useState(() => {
     if (apiSettings?.currency) {
-      currencyForm.setValue("currency", apiSettings.currency);
+      currencyForm.reset({ currency: apiSettings.currency });
     }
   });
+
 
   const updateApiKeyMutation = useMutation({
     mutationFn: async (data: ApiKeyFormData) => {
@@ -163,7 +178,7 @@ export default function SuperAdminApiKeys() {
               <SelectValue placeholder="Select a business account..." />
             </SelectTrigger>
             <SelectContent>
-              {businessAccounts.map((account: any) => (
+              {businessAccounts.map((account) => (
                 <SelectItem key={account.id} value={account.id}>
                   {account.name} ({account.website || "No website"})
                 </SelectItem>
