@@ -55,16 +55,17 @@ The server is already running on port 5000. You can verify:
 ## 🎛️ Configuration
 
 ### Model Selection
-By default, uses `gpt-4o-realtime-preview-2024-12-17` model.
+By default, uses `gpt-realtime-mini` model (cost-effective and fast).
 
 To change the model, set environment variable:
 ```bash
 # .env file
-OPENAI_REALTIME_MODEL=gpt-4o-realtime-preview-2024-12-17
+OPENAI_REALTIME_MODEL=gpt-realtime-mini
 ```
 
 Available models:
-- `gpt-4o-realtime-preview-2024-12-17` - Latest realtime model
+- `gpt-realtime-mini` - Fast, cost-effective model (current)
+- `gpt-4o-realtime-preview-2024-12-17` - Latest full-featured model
 - `gpt-4o-realtime-preview` - Standard realtime model
 
 ### Voice Configuration
