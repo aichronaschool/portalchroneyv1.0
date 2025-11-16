@@ -33,23 +33,24 @@ Preferred communication style: Simple, everyday language.
   - Total latency reduced from ~200-300ms to ~110-130ms
   - Fixed all OpenAI VAD false positive handling
 
-- **ChatGPT Advanced Voice Mode Experience**: Completely revamped voice mode to match ChatGPT's natural conversation quality
-  - **Voice Selection**: Using "shimmer" voice (warm, expressive, natural-sounding)
-  - **System Instructions**: Completely redesigned to create human-like conversations:
-    - Natural speech patterns with conversational rhythm
-    - Uses filler words ("well", "you know", "hmm") for authenticity
-    - Shows genuine emotion and personality
-    - Responds like talking to a helpful friend on a phone call
-    - Varies sentence structure to avoid robotic speech
+- **Professional Voice Mode Configuration**: Optimized for clear, relevant business communication
+  - **Voice Selection**: Using "alloy" voice (clear, professional, articulate)
+  - **System Instructions**: Focused on helpful, relevant responses:
+    - Clear role definition as Chroney business assistant
+    - Emphasis on responding directly and relevantly to user questions
+    - Concise responses (2-3 sentences max, 800 tokens)
+    - Professional phone conversation tone
+    - Instruction to ask for clarification if unclear
+    - Guidelines for capturing leads and booking appointments
   - **Optimized Turn Detection**: 
-    - 700ms silence duration for more natural conversation flow
+    - 700ms silence duration for natural conversation flow
     - Balanced sensitivity (0.5 threshold) for smooth interruptions
     - 300ms prefix padding to capture speech start smoothly
-  - **Enhanced Naturalness**:
-    - Temperature increased to 0.9 for varied, natural responses
-    - Response length limited to 1500 tokens for conversational brevity
-    - Personality-driven interactions (friendly, professional, or casual)
-  - **Conversation Flow**: Feels like a real phone conversation with natural pauses, acknowledgments, and follow-up questions
+  - **Response Quality**:
+    - Temperature at 0.7 for consistent, relevant responses
+    - Response length limited to 800 tokens for brevity
+    - Focus on staying on-topic and solution-oriented
+  - **Conversation Flow**: Natural professional business conversation with clear, relevant responses
 
 - **SuperAdmin API Keys Enhancement**:
   - **SuperAdmin-Only Control**: Comprehensive API Keys management interface in SuperAdmin panel
