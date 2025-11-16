@@ -1065,12 +1065,36 @@ CRITICAL: Do NOT remove any existing data. Only add to it and update when necess
       // Extract all paragraphs for additional context
       const paragraphs = $('p').map((_, el) => $(el).text().trim()).get().filter(p => p.length > 20).join(' ');
 
+      // Extract contact information specifically
+      const telLinks = $('a[href^="tel:"]').map((_, el) => {
+        const href = $(el).attr('href') || '';
+        const text = $(el).text().trim();
+        return `Phone: ${href.replace('tel:', '')} (${text})`;
+      }).get().join(', ');
+      
+      const mailtoLinks = $('a[href^="mailto:"]').map((_, el) => {
+        const href = $(el).attr('href') || '';
+        const text = $(el).text().trim();
+        return `Email: ${href.replace('mailto:', '')} (${text})`;
+      }).get().join(', ');
+      
+      // Extract contact sections
+      const contactContent = $('[class*="contact"], [id*="contact"], .address, .phone, .email, [class*="phone"], [class*="email"]')
+        .map((_, el) => $(el).text().trim())
+        .get()
+        .filter(text => text.length > 0 && text.length < 500)
+        .join(' ');
+
       const fullContent = `
         Title: ${title}
         Meta Description: ${metaDescription}
         OG Description: ${ogDescription}
         
         Headings: ${headings}
+        
+        Contact Links: ${telLinks || mailtoLinks ? `${telLinks} ${mailtoLinks}`.trim() : 'None found'}
+        
+        Contact Sections: ${contactContent || 'None found'}
         
         Header & Navigation:
         ${headerContent}
