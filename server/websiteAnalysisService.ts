@@ -1084,7 +1084,9 @@ CRITICAL: Do NOT remove any existing data. Only add to it and update when necess
         if (error.name === 'AbortError') {
           throw new Error('Website request timed out');
         }
-        if (error.message.includes('not allowed') || error.message.includes('Invalid URL')) {
+        if (error.message.includes('not allowed') || 
+            error.message.includes('Invalid URL') ||
+            error.message.includes('JavaScript-heavy')) {
           throw error;
         }
       }
