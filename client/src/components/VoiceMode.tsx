@@ -151,6 +151,10 @@ export function VoiceMode({
       setIsOnline(false);
       isOnlineRef.current = false;
       setIsConnecting(false);
+      
+      // Reset state to idle when connection closes
+      setState('idle');
+      setCurrentTranscript('');
     };
   };
 
