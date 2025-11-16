@@ -675,7 +675,8 @@ export function VoiceMode({
         };
 
         source.connect(workletNode);
-        workletNode.connect(audioContextRef.current.destination); // Also output to speakers for monitoring (optional)
+        // DO NOT connect to destination - causes audio feedback loop
+        // workletNode.connect(audioContextRef.current.destination);
         
         console.log('[VoiceMode] Using AudioWorklet for audio capture');
       } else {
@@ -701,7 +702,8 @@ export function VoiceMode({
         };
 
         source.connect(processor);
-        processor.connect(audioContextRef.current.destination);
+        // DO NOT connect to destination - causes audio feedback loop
+        // processor.connect(audioContextRef.current.destination);
         
         console.log('[VoiceMode] Using ScriptProcessor for audio capture (fallback)');
       }
