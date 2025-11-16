@@ -9,6 +9,7 @@ import { AppSidebar } from "@/components/AppSidebar";
 import AdminProducts from "@/pages/AdminProducts";
 import AdminFaqs from "@/pages/AdminFaqs";
 import AdminLeads from "@/pages/AdminLeads";
+import SupportTickets from "@/pages/support-tickets";
 import About from "@/pages/About";
 import WidgetSettings from "@/pages/WidgetSettings";
 import Settings from "@/pages/Settings";
@@ -118,6 +119,7 @@ function AppContent({ currentUser }: { currentUser: MeResponseDto | null }) {
                 <Route path="/admin/shopify" component={Shopify} />
                 <Route path="/admin/faqs" component={AdminFaqs} />
                 <Route path="/admin/leads" component={AdminLeads} />
+                <Route path="/tickets" component={SupportTickets} />
                 <Route path="/admin/calendar" component={Calendar} />
                 <Route path="/admin/about" component={About} />
                 <Route path="/admin/scan-docs" component={ScanDocs} />

@@ -19,7 +19,8 @@ import {
 } from "@/components/ui/sidebar";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
-import { Package, HelpCircle, ShieldCheck, LogOut, Contact, Home, Building2, Sparkles, Settings, Brain, BarChart3, MessageSquare, ShoppingBag, Calendar, GraduationCap, ChevronRight, Presentation, FileText, Key } from "lucide-react";
+import { Package, HelpCircle, ShieldCheck, LogOut, Contact, Home, Building2, Sparkles, Settings, Brain, BarChart3, MessageSquare, ShoppingBag, Calendar, GraduationCap, ChevronRight, Presentation, FileText, Key, LifeBuoy } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import type { MeResponseDto } from "@shared/dto";
 
 interface AppSidebarProps {
@@ -29,6 +30,20 @@ interface AppSidebarProps {
 export function AppSidebar({ user }: AppSidebarProps) {
   const [location, setLocation] = useLocation();
   const [isTrainingOpen, setIsTrainingOpen] = useState(false);
+
+  const isSuperAdmin = user?.role === "super_admin";
+  
+  // Feature flags from business account settings
+  const hasShopifyEnabled = user?.businessAccount?.shopifyEnabled === true;
+  const hasAppointmentsEnabled = user?.businessAccount?.appointmentsEnabled === true;
+
+  // Fetch open ticket count for badge
+  const { data: ticketStats } = useQuery<{ open: number }>({
+    queryKey: ["/api/tickets/stats"],
+    enabled: !isSuperAdmin && !!user,
+  });
+  
+  const openTicketCount = ticketStats?.open || 0;
 
   const handleLogout = async () => {
     try {
@@ -40,12 +55,6 @@ export function AppSidebar({ user }: AppSidebarProps) {
       console.error("Logout failed:", error);
     }
   };
-
-  const isSuperAdmin = user?.role === "super_admin";
-  
-  // Feature flags from business account settings
-  const hasShopifyEnabled = user?.businessAccount?.shopifyEnabled === true;
-  const hasAppointmentsEnabled = user?.businessAccount?.appointmentsEnabled === true;
 
   return (
     <Sidebar>
@@ -104,6 +113,21 @@ export function AppSidebar({ user }: AppSidebarProps) {
                   >
                     <Contact className="w-4 h-4" />
                     <span>Leads</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    onClick={() => setLocation("/tickets")}
+                    isActive={location === "/tickets" || location.startsWith("/tickets/")}
+                    data-testid="link-support-tickets"
+                  >
+                    <LifeBuoy className="w-4 h-4" />
+                    <span>Support Tickets</span>
+                    {openTicketCount > 0 && (
+                      <Badge variant="destructive" className="ml-auto text-xs" data-testid="badge-ticket-count">
+                        {openTicketCount}
+                      </Badge>
+                    )}
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               </SidebarMenu>
