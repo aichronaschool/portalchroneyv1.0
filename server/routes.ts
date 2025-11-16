@@ -3157,8 +3157,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get business account to retrieve OpenAI API key
       const businessAccount = await storage.getBusinessAccount(businessAccountId);
       if (!businessAccount?.openaiApiKey) {
-        return res.status(400).json({ error: "OpenAI API key not configured. Please set it in Settings first." });
+        return res.status(400).json({ error: "OpenAI API key not configured. Please contact SuperAdmin to set it up." });
       }
+
+      // Decrypt the OpenAI API key before using it
+      const { decrypt } = await import("./services/encryptionService");
+      const decryptedApiKey = decrypt(businessAccount.openaiApiKey);
 
       // Import the service here to avoid circular dependencies
       const { websiteAnalysisService } = await import("./websiteAnalysisService");
@@ -3175,14 +3179,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // - If specific pages provided, analyze only those pages (analyzeWebsitePages)
       if (!additionalPages || additionalPages.length === 0) {
         // Full website analysis with automatic multi-page crawling
-        websiteAnalysisService.analyzeWebsite(websiteUrl, businessAccountId, businessAccount.openaiApiKey)
+        websiteAnalysisService.analyzeWebsite(websiteUrl, businessAccountId, decryptedApiKey)
           .catch(error => {
             console.error('[Website Analysis] Error:', error);
           });
       } else {
         // Analyze specific pages only (manual page selection)
         const shouldAppend = analyzeOnlyAdditional || additionalPages?.length > 0;
-        websiteAnalysisService.analyzeWebsitePages(pagesToAnalyze, businessAccountId, businessAccount.openaiApiKey, shouldAppend)
+        websiteAnalysisService.analyzeWebsitePages(pagesToAnalyze, businessAccountId, decryptedApiKey, shouldAppend)
           .catch(error => {
             console.error('[Website Analysis] Error:', error);
           });
