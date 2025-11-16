@@ -336,7 +336,7 @@ export class RealtimeVoiceService {
         const ttsConnection = deepgram.speak.live({
           model: 'aura-2-luna-en', // Natural, human-sounding voice (calm & empathetic)
           encoding: 'linear16',
-          sample_rate: 24000,
+          sample_rate: 48000, // Match client AudioContext for smooth playback
           container: 'none'
         });
 

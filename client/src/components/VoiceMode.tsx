@@ -438,8 +438,8 @@ export function VoiceMode({
   };
 
   const decodeLinearPCM = async (arrayBuffer: ArrayBuffer, audioContext: AudioContext): Promise<AudioBuffer> => {
-    // Create WAV file with header for proper browser decoding
-    const wavHeader = createWavHeader(arrayBuffer.byteLength, 24000);
+    // Create WAV file with header for proper browser decoding (48kHz for smooth playback)
+    const wavHeader = createWavHeader(arrayBuffer.byteLength, 48000);
     
     // Combine WAV header + PCM data
     const wavFile = new Uint8Array(wavHeader.byteLength + arrayBuffer.byteLength);
@@ -460,7 +460,7 @@ export function VoiceMode({
         samples[i] = int16 / 32768.0;
       }
       
-      const audioBuffer = audioContext.createBuffer(1, samples.length, 24000);
+      const audioBuffer = audioContext.createBuffer(1, samples.length, 48000);
       audioBuffer.getChannelData(0).set(samples);
       return audioBuffer;
     }
