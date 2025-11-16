@@ -23,6 +23,11 @@ import {
   insertSlotOverrideSchema,
   insertAppointmentSchema,
   insertTrainingDocumentSchema,
+  insertSupportTicketSchema,
+  insertTicketMessageSchema,
+  insertTicketAttachmentSchema,
+  insertCannedResponseSchema,
+  insertTicketInsightSchema,
 } from "@shared/schema";
 import { z } from "zod";
 import { chatService } from "./chatService";
@@ -30,6 +35,7 @@ import { llamaService } from "./llamaService";
 import { conversationMemory } from "./conversationMemory";
 import { businessContextCache } from "./services/businessContextCache";
 import { pdfProcessingService } from "./services/pdfProcessingService";
+import { ticketIntelligenceService } from "./services/ticketIntelligenceService";
 import multer from "multer";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -2659,6 +2665,602 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Business account not found" });
       }
       await storage.deleteLead(req.params.id, businessAccountId);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Support Ticket routes
+  app.post("/api/tickets", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      // Validate request body with Zod schema
+      const validatedData = insertSupportTicketSchema.parse({
+        ...req.body,
+        businessAccountId,
+        status: req.body.status || 'open',
+        priority: req.body.priority || 'medium'
+      });
+
+      const ticket = await storage.createSupportTicket(validatedData);
+      
+      // Trigger AI analysis asynchronously
+      if (ticket.subject && ticket.description) {
+        ticketIntelligenceService.analyzeTicket(
+          businessAccountId,
+          ticket.id,
+          ticket.subject,
+          ticket.description,
+          ticket.customerEmail || ''
+        ).catch(error => console.error('Ticket analysis error:', error));
+      }
+
+      res.json(ticket);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/tickets", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      const { status, priority, category } = req.query;
+      const filters: any = {};
+      
+      if (status) filters.status = status as string;
+      if (priority) filters.priority = priority as string;
+      if (category) filters.category = category as string;
+
+      const tickets = await storage.getAllSupportTickets(businessAccountId, filters);
+      res.json(tickets);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/tickets/stats", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      const stats = await storage.getTicketStats(businessAccountId);
+      res.json(stats);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/tickets/:id", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      const ticket = await storage.getSupportTicket(req.params.id, businessAccountId);
+      if (!ticket) {
+        return res.status(404).json({ error: "Ticket not found" });
+      }
+
+      // Get messages and attachments
+      const [messages, attachments] = await Promise.all([
+        storage.getTicketMessages(ticket.id, businessAccountId),
+        storage.getTicketAttachments(ticket.id, businessAccountId)
+      ]);
+
+      res.json({ ...ticket, messages, attachments });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/tickets/:id", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      // Validate update fields - make all fields optional for partial updates
+      const validatedUpdates = insertSupportTicketSchema.partial().parse(req.body);
+
+      const ticket = await storage.updateSupportTicket(req.params.id, businessAccountId, validatedUpdates);
+      res.json(ticket);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/tickets/:id/status", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      const { status } = req.body;
+      if (!status) {
+        return res.status(400).json({ error: "Status is required" });
+      }
+
+      const ticket = await storage.updateTicketStatus(req.params.id, businessAccountId, status);
+      res.json(ticket);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/tickets/:id/priority", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      const { priority } = req.body;
+      if (!priority) {
+        return res.status(400).json({ error: "Priority is required" });
+      }
+
+      const ticket = await storage.updateTicketPriority(req.params.id, businessAccountId, priority);
+      res.json(ticket);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/tickets/:id/resolve", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      const { isAutoResolved, resolutionSummary } = req.body;
+      const ticket = await storage.resolveTicket(
+        req.params.id,
+        businessAccountId,
+        isAutoResolved || false,
+        resolutionSummary
+      );
+      res.json(ticket);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/tickets/:id/close", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      const ticket = await storage.closeTicket(req.params.id, businessAccountId);
+      res.json(ticket);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/tickets/:id/reopen", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      const ticket = await storage.reopenTicket(req.params.id, businessAccountId);
+      res.json(ticket);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/tickets/:id/rating", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      const { rating, feedback } = req.body;
+      if (!rating) {
+        return res.status(400).json({ error: "Rating is required" });
+      }
+
+      const ticket = await storage.updateTicketRating(req.params.id, rating, feedback);
+      res.json(ticket);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // AI Operations for tickets
+  app.post("/api/tickets/:id/analyze", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      const ticket = await storage.getSupportTicket(req.params.id, businessAccountId);
+      if (!ticket) {
+        return res.status(404).json({ error: "Ticket not found" });
+      }
+
+      const analysis = await ticketIntelligenceService.analyzeTicket(
+        businessAccountId,
+        ticket.id,
+        ticket.subject,
+        ticket.description,
+        ticket.customerEmail || ''
+      );
+
+      res.json(analysis);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/tickets/:id/auto-resolve", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      const ticket = await storage.getSupportTicket(req.params.id, businessAccountId);
+      if (!ticket) {
+        return res.status(404).json({ error: "Ticket not found" });
+      }
+
+      const resolution = await ticketIntelligenceService.attemptAutoResolution(
+        businessAccountId,
+        ticket.id,
+        ticket.subject,
+        ticket.description
+      );
+
+      res.json(resolution);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/tickets/:id/draft-response", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      const ticket = await storage.getSupportTicket(req.params.id, businessAccountId);
+      if (!ticket) {
+        return res.status(404).json({ error: "Ticket not found" });
+      }
+
+      const messages = await storage.getTicketMessages(ticket.id, businessAccountId);
+      const conversationHistory = messages.map(msg => ({
+        role: msg.senderType === 'customer' ? 'customer' as const : 'agent' as const,
+        content: msg.message
+      }));
+
+      const draftResponse = await ticketIntelligenceService.generateAIDraftResponse(
+        businessAccountId,
+        ticket.id,
+        ticket.subject,
+        ticket.description,
+        conversationHistory
+      );
+
+      res.json({ draftResponse });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Ticket Messages
+  app.post("/api/tickets/:id/messages", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      // Verify ticket exists and belongs to business
+      const ticket = await storage.getSupportTicket(req.params.id, businessAccountId);
+      if (!ticket) {
+        return res.status(404).json({ error: "Ticket not found" });
+      }
+
+      // Validate request body with Zod schema
+      const validatedData = insertTicketMessageSchema.parse({
+        ...req.body,
+        ticketId: req.params.id,
+        isInternal: req.body.isInternal || 'false'
+      });
+
+      const message = await storage.createTicketMessage(validatedData);
+      res.json(message);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/tickets/:id/messages", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      const messages = await storage.getTicketMessages(req.params.id, businessAccountId);
+      res.json(messages);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Ticket Attachments
+  app.post("/api/tickets/:id/attachments", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      // Verify ticket exists and belongs to business
+      const ticket = await storage.getSupportTicket(req.params.id, businessAccountId);
+      if (!ticket) {
+        return res.status(404).json({ error: "Ticket not found" });
+      }
+
+      const attachmentData = {
+        ...req.body,
+        ticketId: req.params.id
+      };
+
+      const attachment = await storage.createTicketAttachment(attachmentData);
+      res.json(attachment);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/tickets/:id/attachments", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      const attachments = await storage.getTicketAttachments(req.params.id, businessAccountId);
+      res.json(attachments);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/tickets/attachments/:id", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      await storage.deleteTicketAttachment(req.params.id, businessAccountId);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Canned Responses
+  app.post("/api/canned-responses", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      const responseData = {
+        ...req.body,
+        businessAccountId
+      };
+
+      const cannedResponse = await storage.createCannedResponse(responseData);
+      res.json(cannedResponse);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/canned-responses", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      const responses = await storage.getAllCannedResponses(businessAccountId);
+      res.json(responses);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/canned-responses/:id", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      const response = await storage.getCannedResponse(req.params.id, businessAccountId);
+      if (!response) {
+        return res.status(404).json({ error: "Canned response not found" });
+      }
+
+      res.json(response);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/canned-responses/:id", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      const response = await storage.updateCannedResponse(req.params.id, businessAccountId, req.body);
+      res.json(response);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/canned-responses/:id", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      await storage.deleteCannedResponse(req.params.id, businessAccountId);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/canned-responses/:id/use", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      await storage.incrementCannedResponseUsage(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Ticket Insights
+  app.post("/api/ticket-insights", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      const insightData = {
+        ...req.body,
+        businessAccountId
+      };
+
+      const insight = await storage.createTicketInsight(insightData);
+      res.json(insight);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/ticket-insights", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      const { status, insightType } = req.query;
+      const filters: any = {};
+      
+      if (status) filters.status = status as string;
+      if (insightType) filters.insightType = insightType as string;
+
+      const insights = await storage.getAllTicketInsights(businessAccountId, filters);
+      res.json(insights);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/ticket-insights/:id", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      const insight = await storage.getTicketInsight(req.params.id, businessAccountId);
+      if (!insight) {
+        return res.status(404).json({ error: "Insight not found" });
+      }
+
+      res.json(insight);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/ticket-insights/:id", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      const insight = await storage.updateTicketInsight(req.params.id, businessAccountId, req.body);
+      res.json(insight);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/ticket-insights/:id/review", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      const userId = req.user?.id;
+      if (!businessAccountId || !userId) {
+        return res.status(400).json({ error: "Business account or user not found" });
+      }
+
+      const { status } = req.body;
+      if (!status) {
+        return res.status(400).json({ error: "Status is required" });
+      }
+
+      const insight = await storage.markInsightAsReviewed(req.params.id, businessAccountId, userId, status);
+      res.json(insight);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/ticket-insights/:id", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+
+      await storage.deleteTicketInsight(req.params.id, businessAccountId);
       res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ error: error.message });

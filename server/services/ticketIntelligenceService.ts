@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import { storage } from '../storage';
 import type { SupportTicket } from '@shared/schema';
-import { decryptApiKeyIfNeeded } from '../services/llamaService';
+import { decrypt } from './encryptionService';
 
 interface TicketAnalysis {
   priority: 'low' | 'medium' | 'high' | 'urgent';
@@ -32,7 +32,13 @@ export class TicketIntelligenceService {
     let apiKey = process.env.OPENAI_API_KEY;
     
     if (businessAccount?.openaiApiKey) {
-      apiKey = await decryptApiKeyIfNeeded(businessAccount.openaiApiKey);
+      // Decrypt the API key if it's encrypted (starts with encrypted format)
+      try {
+        apiKey = decrypt(businessAccount.openaiApiKey);
+      } catch {
+        // If decryption fails, assume it's already plain text
+        apiKey = businessAccount.openaiApiKey;
+      }
     }
     
     if (!apiKey) {

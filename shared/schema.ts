@@ -325,6 +325,7 @@ export const publicChatLinks = pgTable("public_chat_links", {
 export const supportTickets = pgTable("support_tickets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   businessAccountId: varchar("business_account_id").notNull().references(() => businessAccounts.id, { onDelete: "cascade" }),
+  ticketNumber: numeric("ticket_number", { precision: 10, scale: 0 }).notNull(), // Sequential ticket number for easy reference
   conversationId: varchar("conversation_id").references(() => conversations.id, { onDelete: "set null" }), // Optional link to original conversation
   
   // Customer information
@@ -445,6 +446,9 @@ export const ticketInsights = pgTable("ticket_insights", {
   relatedTicketIds: text("related_ticket_ids"), // JSON array of ticket IDs
   suggestedAction: text("suggested_action"), // AI-recommended action
   impact: text("impact"), // Estimated business impact
+  
+  // AI generation tracking
+  aiGenerated: text("ai_generated").notNull().default("true"), // 'true' | 'false' - Whether this insight was AI-generated
   
   // Status tracking
   status: text("status").notNull().default("pending"), // 'pending' | 'reviewed' | 'applied' | 'dismissed'
@@ -602,6 +606,7 @@ export const insertPublicChatLinkSchema = createInsertSchema(publicChatLinks).om
 
 export const insertSupportTicketSchema = createInsertSchema(supportTickets).omit({
   id: true,
+  ticketNumber: true,
   createdAt: true,
   updatedAt: true,
   autoResolvedAt: true,

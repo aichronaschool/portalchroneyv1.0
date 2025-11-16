@@ -1876,9 +1876,17 @@ export class DatabaseStorage implements IStorage {
 
   // Support Ticket methods
   async createSupportTicket(insertTicket: InsertSupportTicket): Promise<SupportTicket> {
+    // Generate sequential ticket number for this business account
+    const [maxTicket] = await db
+      .select({ maxNumber: sql<number>`COALESCE(MAX(${supportTickets.ticketNumber}), 0)` })
+      .from(supportTickets)
+      .where(eq(supportTickets.businessAccountId, insertTicket.businessAccountId));
+    
+    const ticketNumber = (maxTicket?.maxNumber || 0) + 1;
+    
     const [ticket] = await db
       .insert(supportTickets)
-      .values(insertTicket)
+      .values({ ...insertTicket, ticketNumber })
       .returning();
     return ticket;
   }
