@@ -37,7 +37,6 @@ import { randomUUID, randomBytes } from "crypto";
 import fs from "fs";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { deepgramVoiceService } from "./deepgramVoiceService";
 import { WebSocketServer } from "ws";
 import { realtimeVoiceService } from "./realtimeVoiceService";
 
@@ -81,9 +80,9 @@ async function generateIntroMessage(businessAccountId: string): Promise<string> 
     // Generate a dynamic intro message
     const businessName = businessAccount?.name || "our business";
     const intros = [
-      `Hey there! Welcome to ${businessName}—happy to help you find exactly what you're looking for. 😊`,
+      `Hey there! Welcome to ${businessName}—happy to help you find exactly what you're looking for.`,
       `Hi! I'm Chroney, ${businessName}'s AI assistant. How can I help you today?`,
-      `Welcome! Need help with anything at ${businessName}? I'm here to assist! 🚀`,
+      `Welcome! Need help with anything at ${businessName}? I'm here to assist!`,
       `Hello! Thanks for visiting ${businessName}. What can I help you with?`,
       `Hey! Looking for something specific at ${businessName}? I'm here to help!`,
     ];
@@ -91,7 +90,7 @@ async function generateIntroMessage(businessAccountId: string): Promise<string> 
     return intros[Math.floor(Math.random() * intros.length)];
   } catch (error) {
     console.error('[Public Chat] Error generating intro:', error);
-    return "Hey there! How can I help you today? 😊";
+    return "Hey there! How can I help you today?";
   }
 }
 
@@ -601,112 +600,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Voice API Routes
-  // Get Deepgram session token for frontend voice integration
-  // 
-  // ⚠️ SECURITY WARNING: This endpoint currently exposes the global Deepgram API key
-  // to the frontend. This is a known limitation for the initial implementation.
-  // 
-  // TODO: For production deployment, implement one of these security improvements:
-  // 1. Use Deepgram's temporary token API to generate ephemeral session tokens
-  // 2. Implement a WebSocket proxy server to avoid exposing the API key
-  // 3. Use Deepgram's on-premise solution for sensitive deployments
-  // 
-  // Current implementation is acceptable for:
-  // - Development/testing environments
-  // - Trusted user bases with proper authentication
-  // - Scenarios where API key rotation is feasible
-  app.get("/api/voice/token", requireAuth, requireBusinessAccount, async (req, res) => {
-    try {
-      if (!deepgramVoiceService.isConfigured()) {
-        return res.status(503).json({ error: "Voice service not configured" });
-      }
-
-      const token = await deepgramVoiceService.createSessionToken();
-      res.json({ token });
-    } catch (error: any) {
-      console.error('[Voice API] Token error:', error);
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  // Process voice message (STT + AI response + optional TTS)
-  app.post("/api/voice/process", requireAuth, requireBusinessAccount, async (req, res) => {
-    try {
-      const user = req.user!;
-      const { audioData, returnAudio = true } = req.body;
-
-      // Input validation: Check audioData exists
-      if (!audioData) {
-        return res.status(400).json({ error: "Audio data required" });
-      }
-
-      // Input validation: Ensure audioData is a string
-      if (typeof audioData !== 'string') {
-        return res.status(400).json({ error: "Audio data must be a base64 string" });
-      }
-
-      // Input validation: Check for valid base64 format
-      const base64Pattern = /^[A-Za-z0-9+/]*={0,2}$/;
-      if (!base64Pattern.test(audioData)) {
-        return res.status(400).json({ error: "Invalid base64 audio data format" });
-      }
-
-      // Input validation: Check size limits (max 10MB base64 ≈ 7.5MB audio)
-      const MAX_AUDIO_SIZE = 10 * 1024 * 1024; // 10MB in bytes
-      if (audioData.length > MAX_AUDIO_SIZE) {
-        return res.status(400).json({ 
-          error: "Audio data exceeds maximum size limit of 10MB" 
-        });
-      }
-
-      if (!deepgramVoiceService.isConfigured()) {
-        return res.status(503).json({ error: "Voice service not configured" });
-      }
-
-      // Convert base64 audio to buffer
-      let audioBuffer: Buffer;
-      try {
-        audioBuffer = Buffer.from(audioData, 'base64');
-      } catch (decodeError) {
-        return res.status(400).json({ error: "Failed to decode base64 audio data" });
-      }
-
-      // Verify decoded buffer is not empty
-      if (audioBuffer.length === 0) {
-        return res.status(400).json({ error: "Audio data is empty" });
-      }
-
-      // Process voice message through Deepgram service
-      // businessAccountId and userId are correctly extracted from req.user
-      const result = await deepgramVoiceService.processVoiceMessage(
-        audioBuffer,
-        user.businessAccountId!,
-        user.id,
-        returnAudio
-      );
-
-      // Return transcript, AI response, optional audio, and products
-      res.json({
-        transcript: result.transcript,
-        response: result.response,
-        audio: result.audio ? result.audio.toString('base64') : undefined,
-        products: result.products
-      });
-    } catch (error: any) {
-      console.error('[Voice API] Processing error:', error);
-      res.status(500).json({ error: error.message });
-    }
-  });
+  // Voice API Routes - DEPRECATED
+  // These REST endpoints are no longer used. Voice mode now uses OpenAI Realtime API
+  // via WebSocket (handled by realtimeVoiceService and /ws/voice endpoint below).
 
   // Helper function for rotating intro messages (Phase 1 optimization)
   const getRandomIntroMessage = () => {
     const introMessages = [
-      "Hey there! I'm Chroney, your AI assistant. I can help with products, FAQs, and more. What brings you here today? 🚀",
-      "What's up! Chroney here 🎯. I know everything about our products and can answer your questions. How can I help?",
-      "Yo! I'm Chroney, your friendly AI sidekick 🤓. Need product info? Have questions? Just ask!",
-      "Sup, human? Chroney reporting for duty 🤖. Tell me what you need—products, FAQs, or just browsing—I'm here to help!",
-      "Hey hey! Chroney here 🕶️. Think of me as your personal shopping assistant. What can I help you discover today?"
+      "Hey there! I'm Chroney, your AI assistant. I can help with products, FAQs, and more. What brings you here today?",
+      "What's up! Chroney here. I know everything about our products and can answer your questions. How can I help?",
+      "Yo! I'm Chroney, your friendly AI sidekick. Need product info? Have questions? Just ask!",
+      "Sup, human? Chroney reporting for duty. Tell me what you need—products, FAQs, or just browsing—I'm here to help!",
+      "Hey hey! Chroney here. Think of me as your personal shopping assistant. What can I help you discover today?"
     ];
     
     return introMessages[Math.floor(Math.random() * introMessages.length)];

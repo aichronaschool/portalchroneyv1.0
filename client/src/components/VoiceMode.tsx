@@ -62,6 +62,8 @@ export function VoiceMode({
   const audioWorkletNodeRef = useRef<AudioWorkletNode | null>(null); // For capturing raw PCM audio
   const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null); // Fallback for older browsers
   const mediaSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const resampleFractionalPositionRef = useRef<number>(0); // For ScriptProcessor resampling state
+  const resampleLastSampleRef = useRef<number>(0); // For ScriptProcessor resampling interpolation
   const { toast } = useToast();
   
   // Keep stateRef in sync with state
@@ -345,10 +347,13 @@ export function VoiceMode({
       }
       
       if (!audioContextRef.current) {
-        // Create AudioContext at 24kHz to match OpenAI's output
+        // Create AudioContext - browser may use its preferred sample rate (often 48kHz)
         audioContextRef.current = new AudioContext({ sampleRate: 24000 });
         console.log('[VoiceMode] AudioContext created for playback, sampleRate:', audioContextRef.current.sampleRate);
       }
+
+      const actualSampleRate = audioContextRef.current.sampleRate;
+      const sourceSampleRate = 24000; // OpenAI Realtime API outputs 24kHz
 
       // OpenAI sends PCM16 (Int16Array) audio at 24kHz
       // Convert raw bytes to Int16Array
@@ -361,15 +366,36 @@ export function VoiceMode({
         float32Data[i] = pcm16Data[i] / (pcm16Data[i] < 0 ? 32768 : 32767);
       }
 
-      // Create AudioBuffer at 24kHz (matching OpenAI's output)
+      // Resample if AudioContext sample rate doesn't match OpenAI's output
+      let resampledData = float32Data;
+      if (actualSampleRate !== sourceSampleRate) {
+        const resampleRatio = actualSampleRate / sourceSampleRate;
+        const outputLength = Math.floor(float32Data.length * resampleRatio);
+        resampledData = new Float32Array(outputLength);
+        
+        // Linear interpolation resampling
+        for (let i = 0; i < outputLength; i++) {
+          const position = i / resampleRatio;
+          const index = Math.floor(position);
+          const fraction = position - index;
+          
+          if (index + 1 < float32Data.length) {
+            resampledData[i] = float32Data[index] * (1 - fraction) + float32Data[index + 1] * fraction;
+          } else if (index < float32Data.length) {
+            resampledData[i] = float32Data[index];
+          }
+        }
+      }
+
+      // Create AudioBuffer at the actual AudioContext sample rate
       const audioBuffer = audioContextRef.current.createBuffer(
         1, // Mono
-        float32Data.length,
-        24000 // Sample rate: 24kHz
+        resampledData.length,
+        actualSampleRate
       );
       
-      // Copy Float32 data into buffer
-      audioBuffer.getChannelData(0).set(float32Data);
+      // Copy resampled Float32 data into buffer
+      audioBuffer.getChannelData(0).set(resampledData);
 
       // Add to queue for playback
       audioQueueRef.current.push(audioBuffer);
@@ -550,6 +576,10 @@ export function VoiceMode({
         return;
       }
 
+      // Reset resampling state for clean start
+      resampleFractionalPositionRef.current = 0;
+      resampleLastSampleRef.current = 0;
+
       console.log('[VoiceMode] Requesting microphone access...');
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
@@ -600,21 +630,32 @@ export function VoiceMode({
       }
 
       if (workletLoaded && audioContextRef.current.audioWorklet) {
-        // Use AudioWorklet (preferred method)
-        const workletNode = new AudioWorkletNode(audioContextRef.current, 'pcm16-audio-processor');
+        // Use AudioWorklet (preferred method) with resampling support
+        const workletNode = new AudioWorkletNode(
+          audioContextRef.current, 
+          'pcm16-audio-processor',
+          {
+            processorOptions: {
+              sampleRate: actualSampleRate
+            }
+          }
+        );
         audioWorkletNodeRef.current = workletNode;
 
         workletNode.port.onmessage = (event) => {
           if (event.data.type === 'audio' && wsRef.current?.readyState === WebSocket.OPEN) {
-            // Send PCM16 binary data directly to server
+            // Send resampled 24kHz PCM16 binary data directly to server
             wsRef.current.send(event.data.data);
+          } else if (event.data.type === 'sampleRate') {
+            // Log actual sample rates for diagnostics
+            console.log(`[VoiceMode] AudioWorklet resampling: ${event.data.sourceSampleRate}Hz → ${event.data.targetSampleRate}Hz`);
           }
         };
 
         source.connect(workletNode);
-        workletNode.connect(audioContextRef.current.destination); // Also output to speakers for monitoring (optional)
+        // Don't connect to destination - we don't want audio feedback
         
-        console.log('[VoiceMode] Using AudioWorklet for audio capture');
+        console.log('[VoiceMode] Using AudioWorklet for audio capture with resampling');
       } else {
         // Fallback to ScriptProcessorNode (deprecated but widely supported)
         const bufferSize = 2048;
@@ -624,8 +665,52 @@ export function VoiceMode({
         processor.onaudioprocess = (event) => {
           const inputData = event.inputBuffer.getChannelData(0);
           
+          // Resample to 24kHz if needed with fractional position tracking
+          let resampledData = inputData;
+          if (actualSampleRate !== 24000) {
+            const resampleRatio = actualSampleRate / 24000; // source / target
+            const output = [];
+            
+            // Continue from where we left off in the previous call
+            let position = resampleFractionalPositionRef.current;
+            
+            while (true) {
+              const index = Math.floor(position);
+              const fraction = position - index;
+              
+              // Check if we've consumed all input samples
+              if (index >= inputData.length) {
+                break;
+              }
+              
+              // Linear interpolation
+              let sample;
+              if (index + 1 < inputData.length) {
+                sample = inputData[index] * (1 - fraction) + inputData[index + 1] * fraction;
+              } else {
+                // Use last sample from previous buffer for interpolation
+                sample = inputData[index] * (1 - fraction) + resampleLastSampleRef.current * fraction;
+              }
+              
+              output.push(sample);
+              
+              // Advance by the resample ratio (source samples per output sample)
+              position += resampleRatio;
+            }
+            
+            // Store the last sample for next interpolation
+            if (inputData.length > 0) {
+              resampleLastSampleRef.current = inputData[inputData.length - 1];
+            }
+            
+            // Store fractional position for next call (subtract consumed samples)
+            resampleFractionalPositionRef.current = position - inputData.length;
+            
+            resampledData = new Float32Array(output);
+          }
+          
           // Convert Float32 to Int16 PCM
-          const pcm16Data = float32ToInt16(inputData);
+          const pcm16Data = float32ToInt16(resampledData);
           
           // Send to server
           if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -634,9 +719,9 @@ export function VoiceMode({
         };
 
         source.connect(processor);
-        processor.connect(audioContextRef.current.destination);
+        // Don't connect to destination - we don't want audio feedback
         
-        console.log('[VoiceMode] Using ScriptProcessor for audio capture (fallback)');
+        console.log('[VoiceMode] Using ScriptProcessor for audio capture (fallback) with resampling');
       }
 
       setState('listening');
