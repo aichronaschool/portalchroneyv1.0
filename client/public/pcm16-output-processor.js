@@ -1,9 +1,11 @@
 /**
- * Optimized PCM16 Output AudioWorklet Processor
+ * Optimized PCM16 Output AudioWorklet Processor with Playback Speed Control
  * - Receives PCM16 audio chunks from main thread
  * - Maintains ring buffer for smooth playback
  * - Converts int16 to float32 for Web Audio output
  * - 1000ms buffer to handle OpenAI's large audio chunks (up to 650ms)
+ * - Playback rate control (0.85x = 15% slower for natural speech)
+ * - Uses linear interpolation for smooth speed adjustment
  */
 
 class PCM16OutputProcessor extends AudioWorkletProcessor {
@@ -21,6 +23,10 @@ class PCM16OutputProcessor extends AudioWorkletProcessor {
     this.isPlaying = false;
     this.underrunCount = 0;
     
+    // Playback speed control (0.85 = 15% slower for more natural speech)
+    this.playbackRate = 0.85;
+    this.readPosition = 0.0; // Fractional position for smooth speed adjustment
+    
     // Listen for incoming PCM16 chunks
     this.port.onmessage = (event) => {
       if (event.data.audio) {
@@ -30,6 +36,8 @@ class PCM16OutputProcessor extends AudioWorkletProcessor {
       } else if (event.data.command === 'stop') {
         this.isPlaying = false;
         this.clear();
+      } else if (event.data.playbackRate !== undefined) {
+        this.playbackRate = event.data.playbackRate;
       }
     };
   }
@@ -68,12 +76,33 @@ class PCM16OutputProcessor extends AudioWorkletProcessor {
       return true;
     }
 
-    // Fill output buffer from ring buffer
+    // Fill output buffer with playback rate control (linear interpolation)
     for (let i = 0; i < outputChannel.length; i++) {
-      if (this.bufferedSamples > 0) {
-        outputChannel[i] = this.ringBuffer[this.readIndex];
-        this.readIndex = (this.readIndex + 1) % this.ringBuffer.length;
-        this.bufferedSamples--;
+      if (this.bufferedSamples > 1) {
+        // Get integer and fractional parts of read position
+        const readIndexInt = Math.floor(this.readPosition);
+        const fraction = this.readPosition - readIndexInt;
+        
+        // Linear interpolation between current and next sample
+        const currentIndex = (this.readIndex + readIndexInt) % this.ringBuffer.length;
+        const nextIndex = (this.readIndex + readIndexInt + 1) % this.ringBuffer.length;
+        
+        const currentSample = this.ringBuffer[currentIndex];
+        const nextSample = this.ringBuffer[nextIndex];
+        
+        outputChannel[i] = currentSample + fraction * (nextSample - currentSample);
+        
+        // Advance read position by playback rate
+        this.readPosition += this.playbackRate;
+        
+        // When we've consumed a full sample, advance the buffer
+        if (this.readPosition >= 1.0) {
+          const samplesToConsume = Math.floor(this.readPosition);
+          this.readIndex = (this.readIndex + samplesToConsume) % this.ringBuffer.length;
+          this.bufferedSamples -= samplesToConsume;
+          this.readPosition -= samplesToConsume;
+          this.underrunCount = 0;
+        }
       } else {
         // Buffer underrun - fill with silence
         outputChannel[i] = 0;
@@ -81,6 +110,7 @@ class PCM16OutputProcessor extends AudioWorkletProcessor {
         
         if (this.underrunCount > 480) { // 20ms of silence
           this.isPlaying = false;
+          this.readPosition = 0.0;
           this.port.postMessage({ event: 'playback_ended' });
         }
       }
@@ -101,6 +131,7 @@ class PCM16OutputProcessor extends AudioWorkletProcessor {
     this.ringBuffer.fill(0);
     this.writeIndex = 0;
     this.readIndex = 0;
+    this.readPosition = 0.0;
     this.bufferedSamples = 0;
     this.underrunCount = 0;
   }
