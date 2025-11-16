@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { X, Mic, Brain, Volume2, Hand } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -884,7 +884,7 @@ export function VoiceMode({
           {/* Animated Orb */}
           <div className="relative flex items-center justify-center mb-12">
             <motion.div
-              className="rounded-full orb-pulse cursor-pointer"
+              className="rounded-full orb-pulse cursor-pointer relative flex items-center justify-center"
               style={{
                 background: `linear-gradient(135deg, ${chatColor}, ${chatColorEnd})`,
                 ...getOrbStyle()
@@ -904,67 +904,92 @@ export function VoiceMode({
                   await startRecording();
                 }
               }}
+              data-testid="voice-orb"
             >
               {/* Inner glow */}
               <div 
-                className="absolute inset-0 rounded-full blur-2xl opacity-30"
+                className="absolute inset-0 rounded-full blur-3xl opacity-40"
                 style={{
                   background: `linear-gradient(135deg, ${chatColor}, ${chatColorEnd})`,
                 }}
               />
-            </motion.div>
 
-            {/* State indicator with enhanced visibility */}
-            <motion.div 
-              className="absolute -bottom-20 text-center"
-              animate={{
-                opacity: state === 'idle' ? [0.6, 1, 0.6] : 1,
-              }}
-              transition={{
-                duration: 2,
-                repeat: state === 'idle' ? Infinity : 0,
-                ease: "easeInOut"
-              }}
-            >
-              {state === 'idle' && (
-                <div className="flex flex-col items-center gap-2">
-                  <div 
-                    className="px-6 py-3 rounded-full shadow-lg"
-                    style={{ background: `linear-gradient(to right, ${chatColor}, ${chatColorEnd})` }}
-                  >
-                    <p className="text-base font-semibold text-white">
-                      👆 Click to Start Speaking
-                    </p>
-                  </div>
-                </div>
-              )}
-              {state === 'listening' && (
-                <div className="flex flex-col items-center gap-2">
-                  <div className="px-6 py-3 rounded-full bg-green-500 shadow-lg animate-pulse">
-                    <p className="text-base font-semibold text-white flex items-center gap-2">
-                      🎤 I'm Listening...
-                    </p>
-                  </div>
-                </div>
-              )}
-              {state === 'thinking' && (
-                <div className="flex flex-col items-center gap-2">
-                  <div className="px-6 py-3 rounded-full bg-yellow-500 shadow-lg">
-                    <p className="text-base font-semibold text-white flex items-center gap-2">
-                      🧠 Processing...
-                    </p>
-                  </div>
-                </div>
-              )}
-              {state === 'speaking' && (
-                <div className="flex flex-col items-center gap-2">
-                  <div className="px-6 py-3 rounded-full bg-blue-500 shadow-lg animate-pulse">
-                    <p className="text-base font-semibold text-white flex items-center gap-2">
-                      🔊 Chroney is Speaking...
-                    </p>
-                  </div>
-                </div>
-              )}
+              {/* Content inside circle - Beautiful and Classy */}
+              <motion.div 
+                className="relative z-10 flex flex-col items-center justify-center gap-4"
+                animate={{
+                  opacity: state === 'idle' ? [0.7, 1, 0.7] : 1,
+                }}
+                transition={{
+                  duration: 2,
+                  repeat: state === 'idle' ? Infinity : 0,
+                  ease: "easeInOut"
+                }}
+              >
+                {state === 'idle' && (
+                  <>
+                    <motion.div
+                      animate={{ y: [0, -8, 0] }}
+                      transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                    >
+                      <Hand className="w-16 h-16 text-white/90" strokeWidth={1.5} />
+                    </motion.div>
+                    <div className="text-center px-8">
+                      <p className="text-white text-xl font-light tracking-wide">Click to Start</p>
+                      <p className="text-white/80 text-lg font-extralight mt-1">Speaking</p>
+                    </div>
+                  </>
+                )}
+                {state === 'listening' && (
+                  <>
+                    <motion.div
+                      animate={{ 
+                        scale: [1, 1.2, 1],
+                        rotate: [0, 5, -5, 0]
+                      }}
+                      transition={{ duration: 0.8, repeat: Infinity, ease: "easeInOut" }}
+                    >
+                      <Mic className="w-16 h-16 text-white" strokeWidth={1.5} />
+                    </motion.div>
+                    <div className="text-center px-8">
+                      <p className="text-white text-2xl font-light tracking-wide">Listening</p>
+                      <p className="text-white/80 text-sm font-extralight mt-2">I'm all ears...</p>
+                    </div>
+                  </>
+                )}
+                {state === 'thinking' && (
+                  <>
+                    <motion.div
+                      animate={{ 
+                        rotate: [0, 360]
+                      }}
+                      transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                    >
+                      <Brain className="w-16 h-16 text-white" strokeWidth={1.5} />
+                    </motion.div>
+                    <div className="text-center px-8">
+                      <p className="text-white text-2xl font-light tracking-wide">Thinking</p>
+                      <p className="text-white/80 text-sm font-extralight mt-2">Processing your request</p>
+                    </div>
+                  </>
+                )}
+                {state === 'speaking' && (
+                  <>
+                    <motion.div
+                      animate={{ 
+                        scale: [1, 1.15, 1]
+                      }}
+                      transition={{ duration: 1, repeat: Infinity, ease: "easeInOut" }}
+                    >
+                      <Volume2 className="w-16 h-16 text-white" strokeWidth={1.5} />
+                    </motion.div>
+                    <div className="text-center px-8">
+                      <p className="text-white text-2xl font-light tracking-wide">Speaking</p>
+                      <p className="text-white/80 text-sm font-extralight mt-2">Chroney is responding</p>
+                    </div>
+                  </>
+                )}
+              </motion.div>
             </motion.div>
           </div>
 
@@ -1030,8 +1055,31 @@ export function VoiceMode({
 
         <style>{`
           .orb-pulse {
-            box-shadow: 0 0 60px rgba(147, 51, 234, 0.3),
-                        0 0 120px rgba(59, 130, 246, 0.2);
+            box-shadow: 0 0 60px rgba(147, 51, 234, 0.4),
+                        0 0 120px rgba(59, 130, 246, 0.3),
+                        0 0 180px rgba(147, 51, 234, 0.2);
+            position: relative;
+          }
+          
+          .orb-pulse::before {
+            content: '';
+            position: absolute;
+            inset: -20px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(147, 51, 234, 0.1) 0%, transparent 70%);
+            animation: pulse-ring 3s ease-in-out infinite;
+            pointer-events: none;
+          }
+          
+          @keyframes pulse-ring {
+            0%, 100% {
+              opacity: 0.3;
+              transform: scale(1);
+            }
+            50% {
+              opacity: 0.6;
+              transform: scale(1.05);
+            }
           }
         `}</style>
       </motion.div>
