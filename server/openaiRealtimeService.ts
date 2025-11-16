@@ -323,37 +323,17 @@ class OpenAIRealtimeService {
           break;
 
         case 'input_audio_buffer.speech_stopped':
-          // User stopped speaking - flush buffered audio, then commit and request response
-          console.log('[OpenAI Realtime] User stopped speaking');
+          // User stopped speaking - Server VAD will auto-commit and create response
+          // We just flush any remaining audio and let OpenAI handle the rest
+          console.log('[OpenAI Realtime] User stopped speaking (Server VAD will handle commit/response)');
           if (connection.openaiWs && connection.openaiWs.readyState === WebSocket.OPEN) {
-            // CRITICAL: Flush any remaining buffered audio BEFORE committing
-            // This ensures all user speech is sent before we signal end-of-turn
+            // Flush any remaining buffered audio
             this.flushAudioBuffer(connection);
             
-            // Check if we can create a response (must have audio AND no response in progress)
-            if (connection.hasAudioInCurrentTurn && !connection.responseInProgress) {
-              console.log('[OpenAI Realtime] Committing audio buffer and creating response');
-              
-              // Commit the audio buffer (signals end of user turn)
-              connection.openaiWs.send(JSON.stringify({
-                type: 'input_audio_buffer.commit'
-              }));
-              
-              // Request assistant response
-              connection.openaiWs.send(JSON.stringify({
-                type: 'response.create'
-              }));
-              
-              // Mark response as in progress
-              connection.responseInProgress = true;
-              
-              // Reset the audio flag for next turn
-              connection.hasAudioInCurrentTurn = false;
-            } else if (connection.responseInProgress) {
-              console.log('[OpenAI Realtime] Response already in progress, skipping commit');
-            } else {
-              console.log('[OpenAI Realtime] No audio in current turn, skipping commit');
-            }
+            // Server VAD automatically commits the buffer and creates response
+            // We don't need to do it manually - that causes double-triggering
+            // Just reset the audio flag for next turn
+            connection.hasAudioInCurrentTurn = false;
           }
           break;
 
@@ -400,6 +380,12 @@ class OpenAIRealtimeService {
             const pcm16Buffer = Buffer.from(message.delta, 'base64');
             clientWs.send(pcm16Buffer);
           }
+          break;
+
+        case 'response.created':
+          // Response started - mark as in progress
+          connection.responseInProgress = true;
+          console.log('[OpenAI Realtime] Response started');
           break;
 
         case 'response.audio.done':
