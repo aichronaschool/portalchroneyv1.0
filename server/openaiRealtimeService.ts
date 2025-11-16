@@ -18,6 +18,7 @@ interface VoiceConnection {
   audioBuffer: Buffer[];
   lastFlush: number;
   hasAudioInCurrentTurn: boolean; // Track if we've sent any audio in current turn
+  responseInProgress: boolean; // Track if assistant response is currently being generated
 }
 
 class OpenAIRealtimeService {
@@ -66,7 +67,8 @@ class OpenAIRealtimeService {
       isConnected: false,
       audioBuffer: [],
       lastFlush: Date.now(),
-      hasAudioInCurrentTurn: false
+      hasAudioInCurrentTurn: false,
+      responseInProgress: false
     };
 
     this.connections.set(connectionKey, connection);
@@ -327,8 +329,8 @@ class OpenAIRealtimeService {
             // This ensures all user speech is sent before we signal end-of-turn
             this.flushAudioBuffer(connection);
             
-            // Only commit and create response if we actually have audio in this turn
-            if (connection.hasAudioInCurrentTurn) {
+            // Check if we can create a response (must have audio AND no response in progress)
+            if (connection.hasAudioInCurrentTurn && !connection.responseInProgress) {
               console.log('[OpenAI Realtime] Committing audio buffer and creating response');
               
               // Commit the audio buffer (signals end of user turn)
@@ -341,8 +343,13 @@ class OpenAIRealtimeService {
                 type: 'response.create'
               }));
               
-              // Reset the flag for next turn
+              // Mark response as in progress
+              connection.responseInProgress = true;
+              
+              // Reset the audio flag for next turn
               connection.hasAudioInCurrentTurn = false;
+            } else if (connection.responseInProgress) {
+              console.log('[OpenAI Realtime] Response already in progress, skipping commit');
             } else {
               console.log('[OpenAI Realtime] No audio in current turn, skipping commit');
             }
@@ -400,7 +407,9 @@ class OpenAIRealtimeService {
           break;
 
         case 'response.done':
-          // Response complete
+          // Response complete - allow new responses
+          connection.responseInProgress = false;
+          console.log('[OpenAI Realtime] Response complete, ready for next turn');
           break;
 
         case 'error':
