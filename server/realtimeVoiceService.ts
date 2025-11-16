@@ -372,7 +372,7 @@ export class RealtimeVoiceService {
         const ttsConnection = deepgram.speak.live({
           model: 'aura-2-luna-en', // Natural, human-sounding voice (calm & empathetic)
           encoding: 'linear16',
-          sample_rate: 24000, // Optimal for human voice - clearer, lower latency, better web compatibility
+          sample_rate: 48000, // Match client AudioContext for smooth playback
           container: 'none'
         });
 
@@ -460,10 +460,6 @@ export class RealtimeVoiceService {
           // Flush TTS to ensure all audio is sent
           if (ttsConnection && ttsReady) {
             ttsConnection.flush();
-            
-            // Wait for flush to complete (give Deepgram time to send all audio)
-            // This prevents cutting off the last few words
-            await new Promise(resolve => setTimeout(resolve, 500));
           }
 
           if (hasContent) {
