@@ -28,6 +28,7 @@ Preferred communication style: Simple, everyday language.
   - Completely rewritten using optimized PCM16/WebSocket architecture
   - 8x lower input latency (256 samples vs 2048 samples)
   - Ring buffer for smooth audio playback
+  - **Stable audio sending**: Queue-based system with consistent 10ms intervals (no burst sending)
   - Turn tracking to prevent concurrent response errors
   - Response state management prevents "conversation already has active response" errors
   - Total latency reduced from ~200-300ms to ~110-130ms

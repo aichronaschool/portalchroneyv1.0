@@ -51,6 +51,10 @@ export function VoiceMode({
   const currentAIMessageIdRef = useRef<string | null>(null);
   const stateRef = useRef(state);
   
+  // Audio chunk queue and sending timer for stable timing
+  const audioQueueRef = useRef<ArrayBuffer[]>([]);
+  const sendIntervalRef = useRef<number | null>(null);
+  
   const { toast } = useToast();
   
   // Keep stateRef in sync with state
@@ -319,13 +323,28 @@ export function VoiceMode({
       const inputWorklet = new AudioWorkletNode(audioContextRef.current, 'pcm16-input-processor');
       inputWorkletRef.current = inputWorklet;
 
-      // Send PCM16 audio to backend via WebSocket
+      // Queue audio chunks from worklet (don't send immediately)
       inputWorklet.port.onmessage = (event) => {
-        if (event.data.audio && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          // Send raw binary PCM16 data (no JSON wrapper)
-          wsRef.current.send(event.data.audio);
+        if (event.data.audio) {
+          // Add to queue instead of sending immediately
+          audioQueueRef.current.push(event.data.audio);
         }
       };
+
+      // Start stable sending timer (send every 10ms for consistent timing)
+      if (sendIntervalRef.current) {
+        clearInterval(sendIntervalRef.current);
+      }
+      
+      sendIntervalRef.current = window.setInterval(() => {
+        // Send one chunk from queue every 10ms (stable timing)
+        if (audioQueueRef.current.length > 0 && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          const chunk = audioQueueRef.current.shift();
+          if (chunk) {
+            wsRef.current.send(chunk);
+          }
+        }
+      }, 10); // 10ms interval = 100 sends/second = stable timing
 
       // Create output worklet node for playback
       const outputWorklet = new AudioWorkletNode(audioContextRef.current, 'pcm16-output-processor');
@@ -358,6 +377,15 @@ export function VoiceMode({
 
   const stopRecording = () => {
     console.log('[VoiceMode] Stopping recording...');
+
+    // Stop stable sending timer
+    if (sendIntervalRef.current) {
+      clearInterval(sendIntervalRef.current);
+      sendIntervalRef.current = null;
+    }
+
+    // Clear audio queue
+    audioQueueRef.current = [];
 
     // Stop input worklet
     if (inputWorkletRef.current) {
