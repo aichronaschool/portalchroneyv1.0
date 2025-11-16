@@ -33,24 +33,27 @@ Preferred communication style: Simple, everyday language.
   - Total latency reduced from ~200-300ms to ~110-130ms
   - Fixed all OpenAI VAD false positive handling
 
-- **Professional Voice Mode Configuration**: Optimized for clear, relevant business communication
-  - **Voice Selection**: Using "alloy" voice (clear, professional, articulate)
-  - **System Instructions**: Focused on helpful, relevant responses:
-    - Clear role definition as Chroney business assistant
-    - Emphasis on responding directly and relevantly to user questions
-    - Concise responses (2-3 sentences max, 800 tokens)
-    - Professional phone conversation tone
-    - Instruction to ask for clarification if unclear
-    - Guidelines for capturing leads and booking appointments
+- **Natural Human-Like Voice Mode**: Optimized for warm, natural, human-sounding conversations
+  - **Voice Selection**: Using "shimmer" voice (warm, natural, expressive, human-like)
+  - **System Instructions**: Focused on natural, human-like speech:
+    - **CRITICAL instructions to speak SLOWLY and CLEARLY**
+    - Explicit guidance to pause naturally between sentences and thoughts
+    - Calm, relaxed conversational pace (not rushing)
+    - Vary tone and rhythm to sound engaging and authentic
+    - Sound like a friendly phone call with a real human
+    - Clear role as Chroney business assistant
+    - Concise responses (2-3 sentences max, 600 tokens)
+    - Natural contractions and conversational language
   - **Optimized Turn Detection**: 
     - 700ms silence duration for natural conversation flow
     - Balanced sensitivity (0.5 threshold) for smooth interruptions
     - 300ms prefix padding to capture speech start smoothly
   - **Response Quality**:
-    - Temperature at 0.7 for consistent, relevant responses
-    - Response length limited to 800 tokens for brevity
-    - Focus on staying on-topic and solution-oriented
-  - **Conversation Flow**: Natural professional business conversation with clear, relevant responses
+    - Temperature at 0.8 for natural variation and expressiveness
+    - Response length limited to 600 tokens for natural pacing
+    - Emphasis on sounding warm and human, not robotic
+    - Direct, relevant responses to user questions
+  - **Conversation Flow**: Natural, human-like conversation with proper pacing, pauses, and warmth
 
 - **SuperAdmin API Keys Enhancement**:
   - **SuperAdmin-Only Control**: Comprehensive API Keys management interface in SuperAdmin panel
