@@ -119,6 +119,9 @@ class OpenAIRealtimeService {
 
       openaiWs.on('open', () => {
         console.log('[OpenAI Realtime] Connected to OpenAI Realtime API');
+        console.log('[VOICE DEBUG] ========================================');
+        console.log('[VOICE DEBUG] INITIALIZING VOICE SESSION');
+        console.log('[VOICE DEBUG] ========================================');
         connection.isConnected = true;
 
         // Configure session for optimal voice quality
@@ -178,6 +181,19 @@ You help customers by:
             max_response_output_tokens: 600 // Shorter for more natural pacing
           }
         };
+
+        console.log('[VOICE DEBUG] Session Configuration:', {
+          voice: sessionConfig.session.voice,
+          temperature: sessionConfig.session.temperature,
+          maxTokens: sessionConfig.session.max_response_output_tokens,
+          vadThreshold: sessionConfig.session.turn_detection.threshold,
+          silenceDuration: sessionConfig.session.turn_detection.silence_duration_ms,
+          audioFormat: sessionConfig.session.input_audio_format
+        });
+        console.log('[VOICE DEBUG] System instructions preview:', 
+          sessionConfig.session.instructions.substring(0, 200) + '...'
+        );
+        console.log('[VOICE DEBUG] ========================================');
 
         openaiWs.send(JSON.stringify(sessionConfig));
         resolve();
@@ -356,6 +372,10 @@ You help customers by:
 
         case 'conversation.item.input_audio_transcription.completed':
           // User transcript ready
+          console.log('[VOICE DEBUG] User said:', {
+            text: message.transcript || '',
+            wordCount: (message.transcript || '').split(' ').length
+          });
           clientWs.send(JSON.stringify({
             type: 'user_transcript',
             text: message.transcript || '',
@@ -365,6 +385,7 @@ You help customers by:
 
         case 'conversation.item.input_audio_transcription.delta':
           // Interim user transcript
+          console.log('[VOICE DEBUG] User speaking (interim):', message.delta || '');
           clientWs.send(JSON.stringify({
             type: 'user_transcript',
             text: message.delta || '',
@@ -374,6 +395,10 @@ You help customers by:
 
         case 'response.audio_transcript.delta':
           // AI transcript (streaming)
+          console.log('[VOICE DEBUG] AI transcript delta:', {
+            text: message.delta || '',
+            length: (message.delta || '').length
+          });
           clientWs.send(JSON.stringify({
             type: 'ai_transcript',
             text: message.delta || '',
@@ -383,6 +408,11 @@ You help customers by:
 
         case 'response.audio_transcript.done':
           // AI transcript complete
+          console.log('[VOICE DEBUG] AI transcript COMPLETE:', {
+            fullText: message.transcript || '',
+            wordCount: (message.transcript || '').split(' ').length,
+            charCount: (message.transcript || '').length
+          });
           clientWs.send(JSON.stringify({
             type: 'ai_transcript',
             text: message.transcript || '',
@@ -395,6 +425,13 @@ You help customers by:
           if (message.delta) {
             // Send raw PCM16 data to client (convert from base64)
             const pcm16Buffer = Buffer.from(message.delta, 'base64');
+            const audioLengthMs = (pcm16Buffer.length / 2) / 24; // samples / sampleRate = ms
+            console.log('[VOICE DEBUG] Audio chunk received:', {
+              base64Length: message.delta.length,
+              pcm16Bytes: pcm16Buffer.length,
+              samples: pcm16Buffer.length / 2,
+              durationMs: audioLengthMs.toFixed(1) + 'ms'
+            });
             clientWs.send(pcm16Buffer);
           }
           break;
@@ -402,18 +439,35 @@ You help customers by:
         case 'response.created':
           // Response started - mark as in progress
           connection.responseInProgress = true;
-          console.log('[OpenAI Realtime] Response started');
+          console.log('[VOICE DEBUG] ========================================');
+          console.log('[VOICE DEBUG] AI RESPONSE STARTED');
+          console.log('[VOICE DEBUG] Response ID:', message.response?.id || 'unknown');
+          console.log('[VOICE DEBUG] Status:', message.response?.status || 'unknown');
+          console.log('[VOICE DEBUG] ========================================');
           break;
 
         case 'response.audio.done':
           // AI finished speaking
+          console.log('[VOICE DEBUG] Audio playback complete');
           clientWs.send(JSON.stringify({ type: 'ai_done' }));
           break;
 
         case 'response.done':
           // Response complete - allow new responses
           connection.responseInProgress = false;
-          console.log('[OpenAI Realtime] Response complete, ready for next turn');
+          console.log('[VOICE DEBUG] ========================================');
+          console.log('[VOICE DEBUG] AI RESPONSE COMPLETE');
+          console.log('[VOICE DEBUG] Response ID:', message.response?.id || 'unknown');
+          console.log('[VOICE DEBUG] Status:', message.response?.status || 'unknown');
+          if (message.response?.usage) {
+            console.log('[VOICE DEBUG] Token usage:', {
+              inputTokens: message.response.usage.input_tokens,
+              outputTokens: message.response.usage.output_tokens,
+              totalTokens: message.response.usage.total_tokens
+            });
+          }
+          console.log('[VOICE DEBUG] Ready for next turn');
+          console.log('[VOICE DEBUG] ========================================');
           break;
 
         case 'error':
