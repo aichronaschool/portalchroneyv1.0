@@ -539,6 +539,14 @@ export default function About() {
                         Last analyzed: {new Date(analysisData.lastAnalyzedAt).toLocaleString()}
                       </p>
                     )}
+                    {status === 'failed' && analysisData?.errorMessage && (
+                      <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-md">
+                        <p className="text-xs text-red-700 flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3" />
+                          {analysisData.errorMessage}
+                        </p>
+                      </div>
+                    )}
                   </div>
                   <Button
                     onClick={handleAnalyze}
@@ -661,6 +669,25 @@ export default function About() {
                 </CardContent>
               </Card>
             )}
+
+            {/* Important Notice */}
+            <Card className="shadow-md border-amber-200 bg-gradient-to-br from-amber-50 to-yellow-50">
+              <CardContent className="pt-4 pb-4">
+                <div className="flex gap-3">
+                  <div className="flex-shrink-0">
+                    <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center">
+                      <Info className="w-5 h-5 text-amber-700" />
+                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-semibold text-amber-900 mb-1 text-sm">Works Best with Standard HTML Sites</h4>
+                    <p className="text-xs text-amber-800">
+                      Website analysis is optimized for standard HTML websites. JavaScript-heavy sites (React, Vue, Angular single-page apps) may have limited results. For best analysis, ensure your key business information is available in regular HTML pages.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
             {/* How It Works */}
             <Card className="shadow-md border-blue-200 bg-gradient-to-br from-blue-50 to-purple-50">

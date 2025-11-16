@@ -4,7 +4,7 @@ expertMode = true
 
 [nix]
 channel = "stable-25_05"
-packages = ["postgresql", "chromium"]
+packages = ["postgresql"]
 
 [workflows]
 runButton = "Project"
@@ -41,6 +41,10 @@ externalPort = 8080
 [[ports]]
 localPort = 41329
 externalPort = 3000
+
+[[ports]]
+localPort = 41397
+externalPort = 3001
 
 [deployment]
 deploymentTarget = "autoscale"

@@ -2,8 +2,6 @@ import OpenAI from "openai";
 import * as cheerio from "cheerio";
 import { storage } from "./storage";
 import { promises as dns } from "dns";
-import puppeteer from "puppeteer-core";
-import { execSync } from "child_process";
 
 interface AnalyzedWebsiteContent {
   businessName: string;
@@ -951,158 +949,6 @@ CRITICAL: Do NOT remove any existing data. Only add to it and update when necess
     return parsedUrl;
   }
 
-  /**
-   * Get system Chromium executable path
-   */
-  private getChromiumPath(): string {
-    try {
-      // Try to find chromium in system PATH
-      const chromiumPath = execSync('which chromium', { encoding: 'utf-8' }).trim();
-      if (chromiumPath) {
-        console.log('[Puppeteer] Found system Chromium at:', chromiumPath);
-        return chromiumPath;
-      }
-    } catch (error) {
-      console.log('[Puppeteer] Could not find chromium via which command');
-    }
-    
-    // Fallback: try common Nix store patterns
-    try {
-      const nixChromium = execSync('ls /nix/store/*/bin/chromium 2>/dev/null | head -n 1', { 
-        encoding: 'utf-8',
-        shell: '/bin/sh'
-      }).trim();
-      if (nixChromium) {
-        console.log('[Puppeteer] Found Nix Chromium at:', nixChromium);
-        return nixChromium;
-      }
-    } catch (error) {
-      console.log('[Puppeteer] Could not find Chromium in Nix store');
-    }
-    
-    throw new Error('Chromium executable not found. Please ensure chromium is installed via Nix packages.');
-  }
-
-  /**
-   * Scrape JavaScript-heavy website using Puppeteer
-   * Used as fallback when Cheerio fails to get enough content
-   * Returns both content and rendered HTML for link discovery
-   */
-  private async scrapeWithPuppeteer(url: string): Promise<{ content: string; html: string }> {
-    console.log('[Puppeteer] Launching browser for:', url);
-    
-    const chromiumPath = this.getChromiumPath();
-    
-    const browser = await puppeteer.launch({
-      headless: true,
-      executablePath: chromiumPath,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--disable-web-security',
-        '--disable-features=IsolateOrigins,site-per-process'
-      ]
-    });
-
-    try {
-      const page = await browser.newPage();
-      
-      // Set viewport and user agent
-      await page.setViewport({ width: 1920, height: 1080 });
-      await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-      
-      // Navigate with timeout
-      await page.goto(url, {
-        waitUntil: 'networkidle2',
-        timeout: 30000
-      });
-      
-      // Wait for React/JavaScript apps to fully hydrate
-      // Check that body has meaningful content (not just loading spinners)
-      await page.waitForFunction(
-        () => {
-          const bodyText = document.body.innerText || '';
-          return bodyText.length > 100; // Wait until at least 100 chars of content
-        },
-        { timeout: 10000 }
-      ).catch(() => {
-        // If it times out, content might still be minimal - that's ok, continue
-        console.log('[Puppeteer] Content load timeout, continuing anyway');
-      });
-      
-      // Extract BOTH content and HTML
-      const { content, html } = await page.evaluate(() => {
-        // First, get the full rendered HTML for link discovery
-        const fullHtml = document.documentElement.outerHTML;
-        
-        // Then extract content (remove script, style for content extraction only)
-        const contentClone = document.body.cloneNode(true) as HTMLElement;
-        const elementsToRemove = contentClone.querySelectorAll('script, style, iframe, noscript');
-        elementsToRemove.forEach(el => el.remove());
-        
-        const title = document.title || '';
-        const metaDescription = document.querySelector('meta[name="description"]')?.getAttribute('content') || '';
-        const ogDescription = document.querySelector('meta[property="og:description"]')?.getAttribute('content') || '';
-        
-        // Extract main content
-        let mainContent = '';
-        const mainSelectors = ['main', 'article', '[role="main"]', '.content', '#content', '.main', '#main'];
-        for (const selector of mainSelectors) {
-          const element = contentClone.querySelector(selector);
-          if (element) {
-            mainContent = element.textContent || '';
-            break;
-          }
-        }
-        if (!mainContent) {
-          mainContent = contentClone.textContent || '';
-        }
-        
-        const headerContent = contentClone.querySelector('header, .header, [role="banner"]')?.textContent || '';
-        const footerContent = contentClone.querySelector('footer, .footer, [role="contentinfo"]')?.textContent || '';
-        
-        // Extract headings
-        const headings = Array.from(contentClone.querySelectorAll('h1, h2, h3'))
-          .map(el => el.textContent?.trim())
-          .filter(Boolean)
-          .join(' | ');
-        
-        // Combine all content
-        const extractedContent = `
-          Title: ${title}
-          Meta Description: ${metaDescription}
-          OG Description: ${ogDescription}
-          
-          Headings: ${headings}
-          
-          Header Section:
-          ${headerContent}
-          
-          Main Content:
-          ${mainContent}
-          
-          Footer Section:
-          ${footerContent}
-        `;
-        
-        return { content: extractedContent, html: fullHtml };
-      });
-      
-      // Clean up and limit size
-      const cleanedContent = content
-        .replace(/\s+/g, ' ')
-        .trim()
-        .substring(0, 25000);
-      
-      console.log('[Puppeteer] Extracted content length:', cleanedContent.length);
-      return { content: cleanedContent, html: html.substring(0, 500000) }; // 500KB HTML limit
-      
-    } finally {
-      await browser.close();
-    }
-  }
 
   /**
    * Scrape website and return both content and HTML (for link discovery)
@@ -1224,18 +1070,9 @@ CRITICAL: Do NOT remove any existing data. Only add to it and update when necess
 
       console.log('[Cheerio] Extracted content length:', cleanedContent.length);
 
-      // If content is too short, use Puppeteer fallback which will also give us rendered HTML
+      // If content is too short, the site is likely JavaScript-heavy
       if (cleanedContent.length < 500) {
-        console.log('[Scraper] Content too short, falling back to Puppeteer...');
-        try {
-          const puppeteerResult = await this.scrapeWithPuppeteer(url);
-          if (puppeteerResult.content.length > cleanedContent.length) {
-            console.log('[Scraper] Puppeteer extracted more content, using it');
-            return puppeteerResult; // Return both content and rendered HTML
-          }
-        } catch (puppeteerError) {
-          console.error('[Puppeteer] Fallback failed:', puppeteerError);
-        }
+        throw new Error('This website appears to be JavaScript-heavy and cannot be analyzed. Website analysis works best with standard HTML sites. Please ensure your key business information is available in regular HTML pages.');
       }
 
       // Return Cheerio content and HTML
@@ -1256,7 +1093,8 @@ CRITICAL: Do NOT remove any existing data. Only add to it and update when necess
   }
 
   /**
-   * Scrape website content using fetch and cheerio (with Puppeteer fallback)
+   * Scrape website content using fetch and cheerio
+   * Works with standard HTML websites
    */
   private async scrapeWebsite(url: string): Promise<string> {
     // Validate URL and resolve DNS to prevent SSRF
@@ -1404,20 +1242,9 @@ CRITICAL: Do NOT remove any existing data. Only add to it and update when necess
 
       console.log('[Cheerio] Extracted content length:', cleanedContent.length);
 
-      // If content is too short, it's likely a JavaScript-heavy site
-      // Use Puppeteer as fallback to render JavaScript
+      // If content is too short, the site is likely JavaScript-heavy
       if (cleanedContent.length < 500) {
-        console.log('[Scraper] Content too short, falling back to Puppeteer...');
-        try {
-          const puppeteerResult = await this.scrapeWithPuppeteer(url);
-          if (puppeteerResult.content.length > cleanedContent.length) {
-            console.log('[Scraper] Puppeteer extracted more content, using it');
-            return puppeteerResult.content;
-          }
-        } catch (puppeteerError) {
-          console.error('[Puppeteer] Fallback failed:', puppeteerError);
-          // Continue with Cheerio content if Puppeteer fails
-        }
+        throw new Error('This website appears to be JavaScript-heavy and cannot be analyzed. Website analysis works best with standard HTML sites. Please ensure your key business information is available in regular HTML pages.');
       }
 
       return cleanedContent;
