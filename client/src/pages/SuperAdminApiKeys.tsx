@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -58,7 +58,7 @@ export default function SuperAdminApiKeys() {
     queryKey: ["/api/business-accounts"],
   });
 
-  const { data: apiSettings } = useQuery<ApiSettings>({
+  const { data: apiSettings, isLoading: apiSettingsLoading } = useQuery<ApiSettings>({
     queryKey: ["/api/business-accounts", selectedBusinessId, "api-settings"],
     enabled: !!selectedBusinessId,
   });
@@ -77,16 +77,24 @@ export default function SuperAdminApiKeys() {
     },
   });
 
-  useState(() => {
-    if (apiSettings?.currency) {
-      currencyForm.reset({ currency: apiSettings.currency });
+  useEffect(() => {
+    if (apiSettings) {
+      currencyForm.reset({ currency: apiSettings.currency || "USD" });
+      apiKeyForm.reset({ openaiApiKey: "" });
     }
-  });
+  }, [apiSettings]);
 
 
   const updateApiKeyMutation = useMutation({
     mutationFn: async (data: ApiKeyFormData) => {
-      return apiRequest("PATCH", `/api/business-accounts/${selectedBusinessId}/api-settings`, data);
+      const payload: Partial<ApiKeyFormData> = {};
+      if (data.openaiApiKey && data.openaiApiKey.trim()) {
+        payload.openaiApiKey = data.openaiApiKey.trim();
+      }
+      if (Object.keys(payload).length === 0) {
+        throw new Error("Please enter an API key to update");
+      }
+      return apiRequest("PATCH", `/api/business-accounts/${selectedBusinessId}/api-settings`, payload);
     },
     onSuccess: () => {
       toast({
@@ -188,7 +196,7 @@ export default function SuperAdminApiKeys() {
         </CardContent>
       </Card>
 
-      {selectedBusinessId && (
+      {selectedBusinessId && !apiSettingsLoading && apiSettings && (
         <>
           <Card>
             <CardHeader>
@@ -247,10 +255,10 @@ export default function SuperAdminApiKeys() {
 
                 <Button
                   type="submit"
-                  disabled={updateApiKeyMutation.isPending}
+                  disabled={updateApiKeyMutation.isPending || apiSettingsLoading}
                   data-testid="button-save-api-key"
                 >
-                  {updateApiKeyMutation.isPending ? "Saving..." : "Save API Key"}
+                  {updateApiKeyMutation.isPending ? "Saving..." : apiSettingsLoading ? "Loading..." : "Save API Key"}
                 </Button>
               </form>
             </CardContent>
@@ -294,15 +302,26 @@ export default function SuperAdminApiKeys() {
 
                 <Button
                   type="submit"
-                  disabled={updateCurrencyMutation.isPending}
+                  disabled={updateCurrencyMutation.isPending || apiSettingsLoading}
                   data-testid="button-save-currency"
                 >
-                  {updateCurrencyMutation.isPending ? "Saving..." : "Save Currency"}
+                  {updateCurrencyMutation.isPending ? "Saving..." : apiSettingsLoading ? "Loading..." : "Save Currency"}
                 </Button>
               </form>
             </CardContent>
           </Card>
         </>
+      )}
+
+      {selectedBusinessId && apiSettingsLoading && (
+        <Card>
+          <CardContent className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <div className="w-12 h-12 border-4 border-purple-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+              <p className="text-muted-foreground">Loading settings...</p>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {!selectedBusinessId && (
