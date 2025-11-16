@@ -18,6 +18,17 @@ Preferred communication style: Simple, everyday language.
 - All schemas (public, import_staging, staging) have been restored
 - Database schema includes additional columns not present in the initial Drizzle schema (e.g., analyzed_pages.page_category, business_accounts.show_cart_recovery, widget_settings.shopify_* fields)
 
+### SuperAdmin API Keys Enhancement (November 16, 2025)
+- Added Deepgram API key configuration to SuperAdmin "API Keys" tab
+- SuperAdmin can now manage three types of settings per business account:
+  - OpenAI API Key (for AI chatbot functionality)
+  - Deepgram API Key (for voice mode features)
+  - Currency (for product pricing display)
+- All API keys are encrypted using AES-256-GCM encryption and stored in business_accounts table
+- UI displays masked API keys (last 4 characters only) for security
+- Separate forms for each API key with show/hide toggle functionality
+- Backend validates and encrypts all API keys before storage
+
 ## System Architecture
 
 ### UI/UX Decisions
