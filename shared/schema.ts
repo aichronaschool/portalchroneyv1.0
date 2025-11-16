@@ -319,6 +319,142 @@ export const publicChatLinks = pgTable("public_chat_links", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+// Support Tickets System Tables
+
+// Support Tickets - Main ticket management table
+export const supportTickets = pgTable("support_tickets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  businessAccountId: varchar("business_account_id").notNull().references(() => businessAccounts.id, { onDelete: "cascade" }),
+  conversationId: varchar("conversation_id").references(() => conversations.id, { onDelete: "set null" }), // Optional link to original conversation
+  
+  // Customer information
+  customerName: text("customer_name").notNull(),
+  customerEmail: text("customer_email"),
+  customerPhone: text("customer_phone"),
+  
+  // Ticket details
+  subject: text("subject").notNull(),
+  description: text("description").notNull(),
+  
+  // Status and priority
+  status: text("status").notNull().default("open"), // 'open' | 'in_progress' | 'waiting_customer' | 'resolved' | 'closed'
+  priority: text("priority").notNull().default("medium"), // 'low' | 'medium' | 'high' | 'urgent'
+  category: text("category").notNull().default("general"), // 'technical' | 'billing' | 'feature_request' | 'bug_report' | 'complaint' | 'general'
+  
+  // AI-powered features
+  aiPriority: text("ai_priority"), // AI-suggested priority
+  aiCategory: text("ai_category"), // AI-suggested category
+  sentimentScore: numeric("sentiment_score", { precision: 3, scale: 2 }), // -1.00 to 1.00 (negative to positive)
+  emotionalState: text("emotional_state"), // 'happy' | 'neutral' | 'frustrated' | 'angry'
+  churnRisk: text("churn_risk").notNull().default("low"), // 'low' | 'medium' | 'high' | 'critical'
+  aiAnalysis: text("ai_analysis"), // JSON with AI insights, keywords, suggested actions
+  aiDraftedResponse: text("ai_drafted_response"), // AI-generated suggested response
+  
+  // Auto-resolution tracking
+  autoResolved: text("auto_resolved").notNull().default("false"), // 'true' | 'false' - Whether AI resolved without human intervention
+  autoResolvedAt: timestamp("auto_resolved_at"),
+  autoResolutionSummary: text("auto_resolution_summary"), // Summary of how AI resolved the issue
+  
+  // Assignment and workflow
+  assignedTo: varchar("assigned_to").references(() => users.id, { onDelete: "set null" }), // Optional assignment to team member
+  resolvedAt: timestamp("resolved_at"),
+  closedAt: timestamp("closed_at"),
+  
+  // Customer satisfaction
+  customerRating: numeric("customer_rating", { precision: 1, scale: 0 }), // 1-5 star rating
+  customerFeedback: text("customer_feedback"), // Optional feedback from customer
+  
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Ticket Messages - Conversation thread for each ticket
+export const ticketMessages = pgTable("ticket_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ticketId: varchar("ticket_id").notNull().references(() => supportTickets.id, { onDelete: "cascade" }),
+  
+  // Sender information
+  senderId: varchar("sender_id"), // User ID or customer identifier (can be null for anonymous)
+  senderType: text("sender_type").notNull(), // 'customer' | 'business_user' | 'ai' | 'system'
+  senderName: text("sender_name").notNull(),
+  senderEmail: text("sender_email"),
+  
+  // Message content
+  message: text("message").notNull(),
+  messageType: text("message_type").notNull().default("response"), // 'response' | 'internal_note' | 'status_update' | 'system'
+  isInternal: text("is_internal").notNull().default("false"), // 'true' | 'false' - Internal notes not visible to customer
+  
+  // AI features
+  aiDrafted: text("ai_drafted").notNull().default("false"), // 'true' | 'false' - Whether this was AI-generated
+  aiConfidence: numeric("ai_confidence", { precision: 3, scale: 2 }), // 0.00 to 1.00 confidence score
+  
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Ticket Attachments - File uploads for tickets
+export const ticketAttachments = pgTable("ticket_attachments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ticketId: varchar("ticket_id").notNull().references(() => supportTickets.id, { onDelete: "cascade" }),
+  messageId: varchar("message_id").references(() => ticketMessages.id, { onDelete: "cascade" }), // Optional link to specific message
+  
+  // File information
+  filename: text("filename").notNull(),
+  originalFilename: text("original_filename").notNull(),
+  fileSize: numeric("file_size", { precision: 10, scale: 0 }).notNull(), // File size in bytes
+  storageKey: text("storage_key").notNull(), // Path to stored file
+  mimeType: text("mime_type").notNull(),
+  
+  // Uploader information
+  uploadedBy: varchar("uploaded_by"), // User ID or customer identifier
+  uploaderType: text("uploader_type").notNull(), // 'customer' | 'business_user'
+  
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Canned Responses - Template responses for quick replies
+export const cannedResponses = pgTable("canned_responses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  businessAccountId: varchar("business_account_id").notNull().references(() => businessAccounts.id, { onDelete: "cascade" }),
+  
+  // Response details
+  title: text("title").notNull(), // Short title/identifier
+  content: text("content").notNull(), // Response template content
+  category: text("category"), // Optional category for organization
+  
+  // Usage tracking
+  useCount: numeric("use_count", { precision: 10, scale: 0 }).notNull().default("0"),
+  lastUsedAt: timestamp("last_used_at"),
+  
+  createdBy: varchar("created_by").notNull().references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Ticket Insights - AI-generated insights and recommendations
+export const ticketInsights = pgTable("ticket_insights", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  businessAccountId: varchar("business_account_id").notNull().references(() => businessAccounts.id, { onDelete: "cascade" }),
+  
+  // Insight details
+  insightType: text("insight_type").notNull(), // 'faq_suggestion' | 'trend_alert' | 'churn_warning' | 'product_issue' | 'policy_recommendation'
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  priority: text("priority").notNull().default("medium"), // 'low' | 'medium' | 'high'
+  
+  // Supporting data
+  relatedTicketIds: text("related_ticket_ids"), // JSON array of ticket IDs
+  suggestedAction: text("suggested_action"), // AI-recommended action
+  impact: text("impact"), // Estimated business impact
+  
+  // Status tracking
+  status: text("status").notNull().default("pending"), // 'pending' | 'reviewed' | 'applied' | 'dismissed'
+  reviewedBy: varchar("reviewed_by").references(() => users.id, { onDelete: "set null" }),
+  reviewedAt: timestamp("reviewed_at"),
+  
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 // Insert schemas
 export const insertBusinessAccountSchema = createInsertSchema(businessAccounts).omit({
   id: true,
@@ -464,6 +600,40 @@ export const insertPublicChatLinkSchema = createInsertSchema(publicChatLinks).om
   accessCount: true,
 });
 
+export const insertSupportTicketSchema = createInsertSchema(supportTickets).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  autoResolvedAt: true,
+  resolvedAt: true,
+  closedAt: true,
+});
+
+export const insertTicketMessageSchema = createInsertSchema(ticketMessages).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertTicketAttachmentSchema = createInsertSchema(ticketAttachments).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertCannedResponseSchema = createInsertSchema(cannedResponses).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  useCount: true,
+  lastUsedAt: true,
+});
+
+export const insertTicketInsightSchema = createInsertSchema(ticketInsights).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  reviewedAt: true,
+});
+
 // Types
 export type InsertBusinessAccount = z.infer<typeof insertBusinessAccountSchema>;
 export type BusinessAccount = typeof businessAccounts.$inferSelect;
@@ -533,3 +703,18 @@ export type DemoPage = typeof demoPages.$inferSelect;
 
 export type InsertPublicChatLink = z.infer<typeof insertPublicChatLinkSchema>;
 export type PublicChatLink = typeof publicChatLinks.$inferSelect;
+
+export type InsertSupportTicket = z.infer<typeof insertSupportTicketSchema>;
+export type SupportTicket = typeof supportTickets.$inferSelect;
+
+export type InsertTicketMessage = z.infer<typeof insertTicketMessageSchema>;
+export type TicketMessage = typeof ticketMessages.$inferSelect;
+
+export type InsertTicketAttachment = z.infer<typeof insertTicketAttachmentSchema>;
+export type TicketAttachment = typeof ticketAttachments.$inferSelect;
+
+export type InsertCannedResponse = z.infer<typeof insertCannedResponseSchema>;
+export type CannedResponse = typeof cannedResponses.$inferSelect;
+
+export type InsertTicketInsight = z.infer<typeof insertTicketInsightSchema>;
+export type TicketInsight = typeof ticketInsights.$inferSelect;
