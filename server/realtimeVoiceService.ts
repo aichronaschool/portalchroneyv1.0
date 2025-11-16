@@ -334,7 +334,7 @@ export class RealtimeVoiceService {
         // Initialize TTS connection once for streaming chunks
         const deepgram = createClient(conversation.deepgramApiKey);
         const ttsConnection = deepgram.speak.live({
-          model: 'aura-asteria-en',
+          model: 'aura-2-luna-en', // Natural, human-sounding voice (calm & empathetic)
           encoding: 'linear16',
           sample_rate: 24000,
           container: 'none'
