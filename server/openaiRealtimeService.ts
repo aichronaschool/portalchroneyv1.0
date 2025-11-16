@@ -87,8 +87,8 @@ class OpenAIRealtimeService {
    */
   private async connectToOpenAI(connection: VoiceConnection, apiKey: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      // Use full gpt-realtime model for ChatGPT-level quality
-      const model = process.env.OPENAI_REALTIME_MODEL || 'gpt-4o-realtime-preview-2024-12-17';
+      // Use gpt-realtime-mini model (cost-effective and fast)
+      const model = process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime-mini';
       const wsUrl = `wss://api.openai.com/v1/realtime?model=${model}`;
 
       console.log('[OpenAI Realtime] Connecting to OpenAI:', model);
