@@ -111,12 +111,12 @@ export class RealtimeVoiceService {
         reject(new Error('OpenAI connection timeout'));
       }, 10000);
 
-      openaiWs.on('open', () => {
+      openaiWs.on('open', async () => {
         clearTimeout(timeout);
         console.log('[RealtimeVoice] Connected to OpenAI Realtime API');
 
-        // Build system instructions
-        const systemInstructions = this.buildSystemInstructions(conversation);
+        // Build system instructions with business context
+        const systemInstructions = await this.buildSystemInstructions(conversation);
 
         // Configure session
         const sessionConfig = {
@@ -165,8 +165,8 @@ export class RealtimeVoiceService {
     });
   }
 
-  private buildSystemInstructions(conversation: VoiceConversation): string {
-    const { personality, companyDescription, customInstructions, currencySymbol } = conversation;
+  private async buildSystemInstructions(conversation: VoiceConversation): Promise<string> {
+    const { personality, companyDescription, customInstructions, currencySymbol, currency, businessAccountId } = conversation;
 
     let instructions = `You are Chroney, an AI assistant for ${companyDescription || 'a business'}. `;
     
@@ -206,9 +206,193 @@ export class RealtimeVoiceService {
       instructions += `\n\nADDITIONAL INSTRUCTIONS:\n${customInstructions}`;
     }
 
-    instructions += `\n\nCurrency: ${currencySymbol}`;
+    // Add currency information
+    if (currency && currencySymbol) {
+      instructions += `\n\nCURRENCY SETTINGS:\nAll prices should be referenced in ${currency} (${currencySymbol}). When discussing prices, always use ${currencySymbol} as the currency symbol.`;
+    }
+
+    // Load business context (FAQs, products, website analysis, training docs)
+    try {
+      const businessContext = await this.loadBusinessContext(businessAccountId);
+      if (businessContext) {
+        instructions += `\n\n${businessContext}`;
+      }
+    } catch (error) {
+      console.error('[RealtimeVoice] Error loading business context:', error);
+    }
 
     return instructions;
+  }
+
+  private async loadBusinessContext(businessAccountId: string): Promise<string> {
+    let context = '';
+
+    // Load FAQs
+    try {
+      const faqs = await storage.getAllFaqs(businessAccountId);
+      if (faqs.length > 0) {
+        context += `KNOWLEDGE BASE (FAQs):\nYou have complete knowledge of the following frequently asked questions. Answer these questions directly from your knowledge without mentioning FAQs:\n\n`;
+        faqs.forEach((faq, index) => {
+          context += `${index + 1}. Q: ${faq.question}\n   A: ${faq.answer}\n\n`;
+        });
+        context += `IMPORTANT: When customers ask questions related to the above topics, answer directly and naturally from your knowledge. DO NOT mention that you're checking FAQs - just provide the answer as if you know it by heart.\n\n`;
+      }
+    } catch (error) {
+      console.error('[RealtimeVoice] Error loading FAQs:', error);
+    }
+
+    // Load products
+    try {
+      const products = await storage.getAllProducts(businessAccountId);
+      if (products.length > 0) {
+        context += `PRODUCTS CATALOG:\nYou have complete knowledge of the following products:\n\n`;
+        products.forEach((product, index) => {
+          context += `${index + 1}. ${product.name}`;
+          if (product.price) {
+            context += ` - ${product.price}`;
+          }
+          if (product.description) {
+            context += `\n   ${product.description}`;
+          }
+          context += `\n\n`;
+        });
+        context += `IMPORTANT: When customers ask about products, share information enthusiastically and naturally. You can recommend products based on their needs.\n\n`;
+      }
+    } catch (error) {
+      console.error('[RealtimeVoice] Error loading products:', error);
+    }
+
+    // Load website analysis (match text chat's full context)
+    try {
+      const { websiteAnalysisService } = await import("./websiteAnalysisService");
+      const websiteContent = await websiteAnalysisService.getAnalyzedContent(businessAccountId);
+      if (websiteContent) {
+        context += `BUSINESS KNOWLEDGE (from website analysis):\nYou have comprehensive knowledge about this business extracted from their website.\n\n`;
+        
+        if (websiteContent.businessName) {
+          context += `Business Name: ${websiteContent.businessName}\n\n`;
+        }
+        
+        if (websiteContent.businessDescription) {
+          context += `About: ${websiteContent.businessDescription}\n\n`;
+        }
+        
+        if (websiteContent.targetAudience) {
+          context += `Target Audience: ${websiteContent.targetAudience}\n\n`;
+        }
+        
+        if (websiteContent.mainProducts && websiteContent.mainProducts.length > 0) {
+          context += `Main Products:\n${websiteContent.mainProducts.map(p => `- ${p}`).join('\n')}\n\n`;
+        }
+        
+        if (websiteContent.mainServices && websiteContent.mainServices.length > 0) {
+          context += `Main Services:\n${websiteContent.mainServices.map(s => `- ${s}`).join('\n')}\n\n`;
+        }
+        
+        if (websiteContent.keyFeatures && websiteContent.keyFeatures.length > 0) {
+          context += `Key Features:\n${websiteContent.keyFeatures.map(f => `- ${f}`).join('\n')}\n\n`;
+        }
+        
+        if (websiteContent.uniqueSellingPoints && websiteContent.uniqueSellingPoints.length > 0) {
+          context += `Unique Selling Points:\n${websiteContent.uniqueSellingPoints.map(u => `- ${u}`).join('\n')}\n\n`;
+        }
+        
+        if (websiteContent.contactInfo && (websiteContent.contactInfo.email || websiteContent.contactInfo.phone || websiteContent.contactInfo.address)) {
+          context += `Contact Information:\n`;
+          if (websiteContent.contactInfo.email) context += `- Email: ${websiteContent.contactInfo.email}\n`;
+          if (websiteContent.contactInfo.phone) context += `- Phone: ${websiteContent.contactInfo.phone}\n`;
+          if (websiteContent.contactInfo.address) context += `- Address: ${websiteContent.contactInfo.address}\n`;
+          context += '\n';
+        }
+        
+        if (websiteContent.businessHours) {
+          context += `Business Hours: ${websiteContent.businessHours}\n\n`;
+        }
+        
+        if (websiteContent.pricingInfo) {
+          context += `Pricing: ${websiteContent.pricingInfo}\n\n`;
+        }
+        
+        if (websiteContent.additionalInfo) {
+          context += `Additional Information: ${websiteContent.additionalInfo}\n\n`;
+        }
+        
+        context += `IMPORTANT: Use this website knowledge to provide accurate, context-aware responses about the business. Answer naturally without mentioning that you analyzed their website.\n\n`;
+      }
+    } catch (error) {
+      console.error('[RealtimeVoice] Error loading website analysis:', error);
+    }
+
+    // Load analyzed pages (limit to avoid token overflow)
+    try {
+      const analyzedPages = await storage.getAnalyzedPages(businessAccountId);
+      if (analyzedPages && analyzedPages.length > 0) {
+        const validPages = analyzedPages.filter(page => 
+          page.extractedContent && 
+          page.extractedContent.trim() !== '' && 
+          page.extractedContent !== 'No relevant business information found on this page.'
+        );
+        
+        if (validPages.length > 0) {
+          context += `DETAILED WEBSITE CONTENT:\n`;
+          // Limit to first 3 pages to avoid token overflow in voice mode
+          const pagesToLoad = validPages.slice(0, 3);
+          for (const page of pagesToLoad) {
+            try {
+              let pageName = 'Page';
+              try {
+                const url = new URL(page.pageUrl);
+                const pathParts = url.pathname.split('/').filter(Boolean);
+                pageName = pathParts[pathParts.length - 1] || 'Homepage';
+              } catch {
+                const pathParts = page.pageUrl.split('/').filter(Boolean);
+                pageName = pathParts[pathParts.length - 1] || 'Homepage';
+              }
+              context += `--- ${pageName.toUpperCase()} ---\n${page.extractedContent}\n\n`;
+            } catch (error) {
+              console.error('[RealtimeVoice] Error processing page:', error);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[RealtimeVoice] Error loading analyzed pages:', error);
+    }
+
+    // Load training documents
+    try {
+      const trainingDocs = await storage.getTrainingDocuments(businessAccountId);
+      const completedDocs = trainingDocs.filter(doc => doc.uploadStatus === 'completed');
+      if (completedDocs.length > 0) {
+        context += `TRAINING DOCUMENTS KNOWLEDGE:\n`;
+        for (const doc of completedDocs) {
+          if (doc.summary || doc.keyPoints) {
+            context += `--- ${doc.originalFilename} ---\n`;
+            if (doc.summary) {
+              context += `Summary: ${doc.summary}\n`;
+            }
+            if (doc.keyPoints) {
+              try {
+                const keyPoints = JSON.parse(doc.keyPoints);
+                if (Array.isArray(keyPoints) && keyPoints.length > 0) {
+                  context += `Key Points:\n`;
+                  keyPoints.forEach((point: string, index: number) => {
+                    context += `${index + 1}. ${point}\n`;
+                  });
+                }
+              } catch (error) {
+                console.error('[RealtimeVoice] Error parsing key points:', error);
+              }
+            }
+            context += `\n`;
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[RealtimeVoice] Error loading training documents:', error);
+    }
+
+    return context;
   }
 
   private handleOpenAIMessage(conversationKey: string, conversation: VoiceConversation, data: any) {
