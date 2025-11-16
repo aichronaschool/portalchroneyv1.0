@@ -427,8 +427,8 @@ export function VoiceMode({
       
       // Monitor audio levels to detect user speech
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
-      const VOICE_THRESHOLD = 40; // Adjust based on testing
-      const SILENCE_FRAMES_NEEDED = 3; // Debounce false positives
+      const VOICE_THRESHOLD = 70; // Increased to reduce false positives from background noise/echo
+      const SILENCE_FRAMES_NEEDED = 6; // Increased debounce to prevent accidental interruptions
       let silenceFrames = SILENCE_FRAMES_NEEDED;
       
       vadIntervalRef.current = setInterval(() => {
