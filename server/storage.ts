@@ -22,6 +22,11 @@ import {
   appointments,
   demoPages,
   publicChatLinks,
+  supportTickets,
+  ticketMessages,
+  ticketAttachments,
+  cannedResponses,
+  ticketInsights,
   type User, 
   type InsertUser,
   type Conversation,
@@ -65,7 +70,17 @@ import {
   type DemoPage,
   type InsertDemoPage,
   type PublicChatLink,
-  type InsertPublicChatLink
+  type InsertPublicChatLink,
+  type SupportTicket,
+  type InsertSupportTicket,
+  type TicketMessage,
+  type InsertTicketMessage,
+  type TicketAttachment,
+  type InsertTicketAttachment,
+  type CannedResponse,
+  type InsertCannedResponse,
+  type TicketInsight,
+  type InsertTicketInsight
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, count, inArray, sql, and, or, gte, lte } from "drizzle-orm";
@@ -241,6 +256,54 @@ export interface IStorage {
   togglePublicChatLinkStatus(businessAccountId: string): Promise<PublicChatLink>;
   regeneratePublicChatLinkToken(businessAccountId: string, newToken: string): Promise<PublicChatLink>;
   updatePublicChatLinkAccess(token: string): Promise<void>;
+
+  // Support Ticket methods
+  createSupportTicket(ticket: InsertSupportTicket): Promise<SupportTicket>;
+  getSupportTicket(id: string, businessAccountId: string): Promise<SupportTicket | undefined>;
+  getAllSupportTickets(businessAccountId: string, filters?: { status?: string; priority?: string; category?: string }): Promise<SupportTicket[]>;
+  updateSupportTicket(id: string, businessAccountId: string, updates: Partial<InsertSupportTicket>): Promise<SupportTicket>;
+  updateTicketStatus(id: string, businessAccountId: string, status: string): Promise<SupportTicket>;
+  updateTicketPriority(id: string, businessAccountId: string, priority: string): Promise<SupportTicket>;
+  updateTicketAIAnalysis(id: string, aiAnalysis: string, aiPriority?: string, aiCategory?: string, sentimentScore?: number, emotionalState?: string, churnRisk?: string): Promise<SupportTicket>;
+  resolveTicket(id: string, businessAccountId: string, isAutoResolved: boolean, resolutionSummary?: string): Promise<SupportTicket>;
+  closeTicket(id: string, businessAccountId: string): Promise<SupportTicket>;
+  reopenTicket(id: string, businessAccountId: string): Promise<SupportTicket>;
+  updateTicketRating(id: string, rating: number, feedback?: string): Promise<SupportTicket>;
+  getTicketStats(businessAccountId: string): Promise<{
+    total: number;
+    open: number;
+    inProgress: number;
+    resolved: number;
+    closed: number;
+    autoResolved: number;
+    avgResolutionTime: number;
+  }>;
+  
+  // Ticket Message methods
+  createTicketMessage(message: InsertTicketMessage): Promise<TicketMessage>;
+  getTicketMessages(ticketId: string, businessAccountId: string): Promise<TicketMessage[]>;
+  updateTicketMessage(id: string, businessAccountId: string, updates: Partial<InsertTicketMessage>): Promise<TicketMessage>;
+  
+  // Ticket Attachment methods
+  createTicketAttachment(attachment: InsertTicketAttachment): Promise<TicketAttachment>;
+  getTicketAttachments(ticketId: string, businessAccountId: string): Promise<TicketAttachment[]>;
+  deleteTicketAttachment(id: string, businessAccountId: string): Promise<void>;
+  
+  // Canned Response methods
+  createCannedResponse(response: InsertCannedResponse): Promise<CannedResponse>;
+  getCannedResponse(id: string, businessAccountId: string): Promise<CannedResponse | undefined>;
+  getAllCannedResponses(businessAccountId: string): Promise<CannedResponse[]>;
+  updateCannedResponse(id: string, businessAccountId: string, updates: Partial<InsertCannedResponse>): Promise<CannedResponse>;
+  deleteCannedResponse(id: string, businessAccountId: string): Promise<void>;
+  incrementCannedResponseUsage(id: string): Promise<void>;
+  
+  // Ticket Insight methods
+  createTicketInsight(insight: InsertTicketInsight): Promise<TicketInsight>;
+  getTicketInsight(id: string, businessAccountId: string): Promise<TicketInsight | undefined>;
+  getAllTicketInsights(businessAccountId: string, filters?: { status?: string; insightType?: string }): Promise<TicketInsight[]>;
+  updateTicketInsight(id: string, businessAccountId: string, updates: Partial<InsertTicketInsight>): Promise<TicketInsight>;
+  markInsightAsReviewed(id: string, businessAccountId: string, reviewedBy: string, status: string): Promise<TicketInsight>;
+  deleteTicketInsight(id: string, businessAccountId: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1809,6 +1872,511 @@ export class DatabaseStorage implements IStorage {
     }
     
     return updated;
+  }
+
+  // Support Ticket methods
+  async createSupportTicket(insertTicket: InsertSupportTicket): Promise<SupportTicket> {
+    const [ticket] = await db
+      .insert(supportTickets)
+      .values(insertTicket)
+      .returning();
+    return ticket;
+  }
+
+  async getSupportTicket(id: string, businessAccountId: string): Promise<SupportTicket | undefined> {
+    const [ticket] = await db
+      .select()
+      .from(supportTickets)
+      .where(and(
+        eq(supportTickets.id, id),
+        eq(supportTickets.businessAccountId, businessAccountId)
+      ));
+    return ticket;
+  }
+
+  async getAllSupportTickets(
+    businessAccountId: string,
+    filters?: { status?: string; priority?: string; category?: string }
+  ): Promise<SupportTicket[]> {
+    const conditions = [eq(supportTickets.businessAccountId, businessAccountId)];
+    
+    if (filters?.status) {
+      conditions.push(eq(supportTickets.status, filters.status));
+    }
+    if (filters?.priority) {
+      conditions.push(eq(supportTickets.priority, filters.priority));
+    }
+    if (filters?.category) {
+      conditions.push(eq(supportTickets.category, filters.category));
+    }
+
+    const tickets = await db
+      .select()
+      .from(supportTickets)
+      .where(and(...conditions))
+      .orderBy(desc(supportTickets.createdAt));
+    
+    return tickets;
+  }
+
+  async updateSupportTicket(
+    id: string,
+    businessAccountId: string,
+    updates: Partial<InsertSupportTicket>
+  ): Promise<SupportTicket> {
+    const [updated] = await db
+      .update(supportTickets)
+      .set({ 
+        ...updates,
+        updatedAt: new Date()
+      })
+      .where(and(
+        eq(supportTickets.id, id),
+        eq(supportTickets.businessAccountId, businessAccountId)
+      ))
+      .returning();
+    return updated;
+  }
+
+  async updateTicketStatus(id: string, businessAccountId: string, status: string): Promise<SupportTicket> {
+    const [updated] = await db
+      .update(supportTickets)
+      .set({ 
+        status,
+        updatedAt: new Date()
+      })
+      .where(and(
+        eq(supportTickets.id, id),
+        eq(supportTickets.businessAccountId, businessAccountId)
+      ))
+      .returning();
+    return updated;
+  }
+
+  async updateTicketPriority(id: string, businessAccountId: string, priority: string): Promise<SupportTicket> {
+    const [updated] = await db
+      .update(supportTickets)
+      .set({ 
+        priority,
+        updatedAt: new Date()
+      })
+      .where(and(
+        eq(supportTickets.id, id),
+        eq(supportTickets.businessAccountId, businessAccountId)
+      ))
+      .returning();
+    return updated;
+  }
+
+  async updateTicketAIAnalysis(
+    id: string,
+    aiAnalysis: string,
+    aiPriority?: string,
+    aiCategory?: string,
+    sentimentScore?: number,
+    emotionalState?: string,
+    churnRisk?: string
+  ): Promise<SupportTicket> {
+    const updates: any = { 
+      aiAnalysis,
+      updatedAt: new Date()
+    };
+    
+    if (aiPriority) updates.aiPriority = aiPriority;
+    if (aiCategory) updates.aiCategory = aiCategory;
+    if (sentimentScore !== undefined) updates.sentimentScore = sentimentScore.toString();
+    if (emotionalState) updates.emotionalState = emotionalState;
+    if (churnRisk) updates.churnRisk = churnRisk;
+
+    const [updated] = await db
+      .update(supportTickets)
+      .set(updates)
+      .where(eq(supportTickets.id, id))
+      .returning();
+    
+    return updated;
+  }
+
+  async resolveTicket(
+    id: string,
+    businessAccountId: string,
+    isAutoResolved: boolean,
+    resolutionSummary?: string
+  ): Promise<SupportTicket> {
+    const updates: any = {
+      status: 'resolved',
+      resolvedAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    if (isAutoResolved) {
+      updates.autoResolved = 'true';
+      updates.autoResolvedAt = new Date();
+      if (resolutionSummary) {
+        updates.autoResolutionSummary = resolutionSummary;
+      }
+    }
+
+    const [updated] = await db
+      .update(supportTickets)
+      .set(updates)
+      .where(and(
+        eq(supportTickets.id, id),
+        eq(supportTickets.businessAccountId, businessAccountId)
+      ))
+      .returning();
+    
+    return updated;
+  }
+
+  async closeTicket(id: string, businessAccountId: string): Promise<SupportTicket> {
+    const [updated] = await db
+      .update(supportTickets)
+      .set({
+        status: 'closed',
+        closedAt: new Date(),
+        updatedAt: new Date()
+      })
+      .where(and(
+        eq(supportTickets.id, id),
+        eq(supportTickets.businessAccountId, businessAccountId)
+      ))
+      .returning();
+    
+    return updated;
+  }
+
+  async reopenTicket(id: string, businessAccountId: string): Promise<SupportTicket> {
+    const [updated] = await db
+      .update(supportTickets)
+      .set({
+        status: 'open',
+        resolvedAt: null,
+        closedAt: null,
+        updatedAt: new Date()
+      })
+      .where(and(
+        eq(supportTickets.id, id),
+        eq(supportTickets.businessAccountId, businessAccountId)
+      ))
+      .returning();
+    
+    return updated;
+  }
+
+  async updateTicketRating(id: string, rating: number, feedback?: string): Promise<SupportTicket> {
+    const updates: any = {
+      customerRating: rating.toString(),
+      updatedAt: new Date()
+    };
+    
+    if (feedback) {
+      updates.customerFeedback = feedback;
+    }
+
+    const [updated] = await db
+      .update(supportTickets)
+      .set(updates)
+      .where(eq(supportTickets.id, id))
+      .returning();
+    
+    return updated;
+  }
+
+  async getTicketStats(businessAccountId: string): Promise<{
+    total: number;
+    open: number;
+    inProgress: number;
+    resolved: number;
+    closed: number;
+    autoResolved: number;
+    avgResolutionTime: number;
+  }> {
+    const tickets = await db
+      .select()
+      .from(supportTickets)
+      .where(eq(supportTickets.businessAccountId, businessAccountId));
+
+    const stats = {
+      total: tickets.length,
+      open: tickets.filter(t => t.status === 'open').length,
+      inProgress: tickets.filter(t => t.status === 'in_progress').length,
+      resolved: tickets.filter(t => t.status === 'resolved').length,
+      closed: tickets.filter(t => t.status === 'closed').length,
+      autoResolved: tickets.filter(t => t.autoResolved === 'true').length,
+      avgResolutionTime: 0
+    };
+
+    // Calculate average resolution time in hours
+    const resolvedTickets = tickets.filter(t => t.resolvedAt);
+    if (resolvedTickets.length > 0) {
+      const totalTime = resolvedTickets.reduce((sum, ticket) => {
+        const created = new Date(ticket.createdAt).getTime();
+        const resolved = new Date(ticket.resolvedAt!).getTime();
+        return sum + (resolved - created);
+      }, 0);
+      stats.avgResolutionTime = Math.round(totalTime / resolvedTickets.length / (1000 * 60 * 60)); // Convert to hours
+    }
+
+    return stats;
+  }
+
+  // Ticket Message methods
+  async createTicketMessage(insertMessage: InsertTicketMessage): Promise<TicketMessage> {
+    const [message] = await db
+      .insert(ticketMessages)
+      .values(insertMessage)
+      .returning();
+    
+    // Update ticket's updatedAt timestamp
+    await db
+      .update(supportTickets)
+      .set({ updatedAt: new Date() })
+      .where(eq(supportTickets.id, insertMessage.ticketId));
+    
+    return message;
+  }
+
+  async getTicketMessages(ticketId: string, businessAccountId: string): Promise<TicketMessage[]> {
+    // Verify ticket belongs to business
+    const ticket = await this.getSupportTicket(ticketId, businessAccountId);
+    if (!ticket) {
+      return [];
+    }
+
+    const messages = await db
+      .select()
+      .from(ticketMessages)
+      .where(eq(ticketMessages.ticketId, ticketId))
+      .orderBy(ticketMessages.createdAt);
+    
+    return messages;
+  }
+
+  async updateTicketMessage(
+    id: string,
+    businessAccountId: string,
+    updates: Partial<InsertTicketMessage>
+  ): Promise<TicketMessage> {
+    const [updated] = await db
+      .update(ticketMessages)
+      .set(updates)
+      .where(eq(ticketMessages.id, id))
+      .returning();
+    
+    return updated;
+  }
+
+  // Ticket Attachment methods
+  async createTicketAttachment(insertAttachment: InsertTicketAttachment): Promise<TicketAttachment> {
+    const [attachment] = await db
+      .insert(ticketAttachments)
+      .values(insertAttachment)
+      .returning();
+    
+    return attachment;
+  }
+
+  async getTicketAttachments(ticketId: string, businessAccountId: string): Promise<TicketAttachment[]> {
+    // Verify ticket belongs to business
+    const ticket = await this.getSupportTicket(ticketId, businessAccountId);
+    if (!ticket) {
+      return [];
+    }
+
+    const attachments = await db
+      .select()
+      .from(ticketAttachments)
+      .where(eq(ticketAttachments.ticketId, ticketId))
+      .orderBy(ticketAttachments.createdAt);
+    
+    return attachments;
+  }
+
+  async deleteTicketAttachment(id: string, businessAccountId: string): Promise<void> {
+    // Get attachment to verify it belongs to this business's ticket
+    const [attachment] = await db
+      .select()
+      .from(ticketAttachments)
+      .where(eq(ticketAttachments.id, id));
+    
+    if (attachment) {
+      // Verify ticket belongs to business
+      const ticket = await this.getSupportTicket(attachment.ticketId, businessAccountId);
+      if (ticket) {
+        await db
+          .delete(ticketAttachments)
+          .where(eq(ticketAttachments.id, id));
+      }
+    }
+  }
+
+  // Canned Response methods
+  async createCannedResponse(insertResponse: InsertCannedResponse): Promise<CannedResponse> {
+    const [response] = await db
+      .insert(cannedResponses)
+      .values(insertResponse)
+      .returning();
+    
+    return response;
+  }
+
+  async getCannedResponse(id: string, businessAccountId: string): Promise<CannedResponse | undefined> {
+    const [response] = await db
+      .select()
+      .from(cannedResponses)
+      .where(and(
+        eq(cannedResponses.id, id),
+        eq(cannedResponses.businessAccountId, businessAccountId)
+      ));
+    
+    return response;
+  }
+
+  async getAllCannedResponses(businessAccountId: string): Promise<CannedResponse[]> {
+    const responses = await db
+      .select()
+      .from(cannedResponses)
+      .where(eq(cannedResponses.businessAccountId, businessAccountId))
+      .orderBy(desc(cannedResponses.useCount), cannedResponses.title);
+    
+    return responses;
+  }
+
+  async updateCannedResponse(
+    id: string,
+    businessAccountId: string,
+    updates: Partial<InsertCannedResponse>
+  ): Promise<CannedResponse> {
+    const [updated] = await db
+      .update(cannedResponses)
+      .set({
+        ...updates,
+        updatedAt: new Date()
+      })
+      .where(and(
+        eq(cannedResponses.id, id),
+        eq(cannedResponses.businessAccountId, businessAccountId)
+      ))
+      .returning();
+    
+    return updated;
+  }
+
+  async deleteCannedResponse(id: string, businessAccountId: string): Promise<void> {
+    await db
+      .delete(cannedResponses)
+      .where(and(
+        eq(cannedResponses.id, id),
+        eq(cannedResponses.businessAccountId, businessAccountId)
+      ));
+  }
+
+  async incrementCannedResponseUsage(id: string): Promise<void> {
+    await db
+      .update(cannedResponses)
+      .set({
+        useCount: sql`${cannedResponses.useCount} + 1`,
+        lastUsedAt: new Date(),
+        updatedAt: new Date()
+      })
+      .where(eq(cannedResponses.id, id));
+  }
+
+  // Ticket Insight methods
+  async createTicketInsight(insertInsight: InsertTicketInsight): Promise<TicketInsight> {
+    const [insight] = await db
+      .insert(ticketInsights)
+      .values(insertInsight)
+      .returning();
+    
+    return insight;
+  }
+
+  async getTicketInsight(id: string, businessAccountId: string): Promise<TicketInsight | undefined> {
+    const [insight] = await db
+      .select()
+      .from(ticketInsights)
+      .where(and(
+        eq(ticketInsights.id, id),
+        eq(ticketInsights.businessAccountId, businessAccountId)
+      ));
+    
+    return insight;
+  }
+
+  async getAllTicketInsights(
+    businessAccountId: string,
+    filters?: { status?: string; insightType?: string }
+  ): Promise<TicketInsight[]> {
+    const conditions = [eq(ticketInsights.businessAccountId, businessAccountId)];
+    
+    if (filters?.status) {
+      conditions.push(eq(ticketInsights.status, filters.status));
+    }
+    if (filters?.insightType) {
+      conditions.push(eq(ticketInsights.insightType, filters.insightType));
+    }
+
+    const insights = await db
+      .select()
+      .from(ticketInsights)
+      .where(and(...conditions))
+      .orderBy(desc(ticketInsights.createdAt));
+    
+    return insights;
+  }
+
+  async updateTicketInsight(
+    id: string,
+    businessAccountId: string,
+    updates: Partial<InsertTicketInsight>
+  ): Promise<TicketInsight> {
+    const [updated] = await db
+      .update(ticketInsights)
+      .set({
+        ...updates,
+        updatedAt: new Date()
+      })
+      .where(and(
+        eq(ticketInsights.id, id),
+        eq(ticketInsights.businessAccountId, businessAccountId)
+      ))
+      .returning();
+    
+    return updated;
+  }
+
+  async markInsightAsReviewed(
+    id: string,
+    businessAccountId: string,
+    reviewedBy: string,
+    status: string
+  ): Promise<TicketInsight> {
+    const [updated] = await db
+      .update(ticketInsights)
+      .set({
+        status,
+        reviewedBy,
+        reviewedAt: new Date(),
+        updatedAt: new Date()
+      })
+      .where(and(
+        eq(ticketInsights.id, id),
+        eq(ticketInsights.businessAccountId, businessAccountId)
+      ))
+      .returning();
+    
+    return updated;
+  }
+
+  async deleteTicketInsight(id: string, businessAccountId: string): Promise<void> {
+    await db
+      .delete(ticketInsights)
+      .where(and(
+        eq(ticketInsights.id, id),
+        eq(ticketInsights.businessAccountId, businessAccountId)
+      ));
   }
 }
 
