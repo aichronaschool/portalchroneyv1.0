@@ -559,10 +559,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Chat status endpoint
   app.get("/api/chat/status", requireAuth, async (req, res) => {
-    res.json({
-      connected: true,
-      status: "online"
-    });
+    try {
+      const user = req.user;
+      if (!user || !user.businessAccountId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      // Check if OpenAI API key is configured for this business account
+      const businessAccount = await storage.getBusinessAccount(user.businessAccountId);
+      const hasApiKey = !!businessAccount?.openaiApiKey;
+
+      res.json({
+        connected: true,
+        status: hasApiKey ? "online" : "offline"
+      });
+    } catch (error: any) {
+      console.error('[Chat Status] Error:', error);
+      res.json({
+        connected: true,
+        status: "offline"
+      });
+    }
   });
 
   // Phase 1: Memory reset endpoint to prevent context pollution
