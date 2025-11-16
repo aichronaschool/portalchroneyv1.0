@@ -6,6 +6,18 @@ Hi Chroney is a multi-tenant AI chatbot platform designed for businesses to enha
 ## User Preferences
 Preferred communication style: Simple, everyday language.
 
+## Recent Changes
+
+### Database Restoration (November 16, 2025)
+- Successfully imported database backup from previous instance
+- Database now contains:
+  - 9 users across multiple business accounts
+  - 8 business accounts (including chrona.in, socialkit.co.in, induceindia.com, onlinejain.com, and others)
+  - 2 products
+  - Historical conversations, FAQs, leads, and appointments
+- All schemas (public, import_staging, staging) have been restored
+- Database schema includes additional columns not present in the initial Drizzle schema (e.g., analyzed_pages.page_category, business_accounts.show_cart_recovery, widget_settings.shopify_* fields)
+
 ## System Architecture
 
 ### UI/UX Decisions
