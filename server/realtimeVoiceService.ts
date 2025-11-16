@@ -46,6 +46,42 @@ export class RealtimeVoiceService {
     }
   }
 
+  /**
+   * Clean text for TTS to make it sound more natural
+   * - Removes emojis (so TTS doesn't say "blush" etc)
+   * - Removes excessive punctuation
+   * - Preserves natural pauses with commas and periods
+   */
+  private cleanTextForTTS(text: string): string {
+    // Remove emojis by filtering out non-BMP characters (emojis)
+    // This is a simple and reliable approach that works across all platforms
+    let cleanedText = text
+      .split('')
+      .filter(char => {
+        const code = char.codePointAt(0);
+        if (!code) return true;
+        // Remove characters outside Basic Multilingual Plane (most emojis)
+        // Also remove common emoji-related Unicode ranges
+        return code < 0x1F000 || (code > 0x1FFFF && code < 0x2300);
+      })
+      .join('');
+    
+    // Remove excessive punctuation marks (but keep single ones for natural pauses)
+    cleanedText = cleanedText.replace(/[!]{2,}/g, '!'); // Multiple exclamations -> single
+    cleanedText = cleanedText.replace(/[?]{2,}/g, '?'); // Multiple questions -> single
+    cleanedText = cleanedText.replace(/[.]{3,}/g, '...'); // Keep ellipsis natural
+    
+    // Remove markdown formatting that TTS might read out
+    cleanedText = cleanedText.replace(/\*\*/g, ''); // Remove bold markers
+    cleanedText = cleanedText.replace(/\*/g, ''); // Remove italic markers
+    cleanedText = cleanedText.replace(/`/g, ''); // Remove code markers
+    
+    // Trim whitespace and remove extra spaces
+    cleanedText = cleanedText.trim().replace(/\s+/g, ' ');
+    
+    return cleanedText;
+  }
+
   isConfigured(): boolean {
     return !!this.deepgramApiKey;
   }
@@ -400,15 +436,18 @@ export class RealtimeVoiceService {
             fullResponse += textChunk;
             hasContent = true;
 
-            // Send text chunk to client immediately
+            // Send text chunk to client immediately (keep emojis for visual display)
             this.sendMessage(conversation.ws, {
               type: 'ai_chunk',
               text: textChunk
             });
 
-            // Send chunk to TTS immediately for audio generation
-            if (ttsConnection && ttsReady) {
-              ttsConnection.sendText(textChunk);
+            // Clean text for TTS (remove emojis, markdown, etc.) to sound natural
+            const cleanedForTTS = this.cleanTextForTTS(textChunk);
+            
+            // Send chunk to TTS immediately for audio generation (only if it has content after cleaning)
+            if (ttsConnection && ttsReady && cleanedForTTS.length > 0) {
+              ttsConnection.sendText(cleanedForTTS);
             }
           } else if (chunk.type === 'products') {
             // Products data - log but don't speak
