@@ -315,7 +315,23 @@ class OpenAIRealtimeService {
           break;
 
         case 'input_audio_buffer.speech_stopped':
-          // User stopped speaking
+          // User stopped speaking - flush buffered audio, then commit and request response
+          console.log('[OpenAI Realtime] User stopped speaking, flushing buffer and creating response');
+          if (connection.openaiWs && connection.openaiWs.readyState === WebSocket.OPEN) {
+            // CRITICAL: Flush any remaining buffered audio BEFORE committing
+            // This ensures all user speech is sent before we signal end-of-turn
+            this.flushAudioBuffer(connection);
+            
+            // Now commit the audio buffer (signals end of user turn)
+            connection.openaiWs.send(JSON.stringify({
+              type: 'input_audio_buffer.commit'
+            }));
+            
+            // Request assistant response
+            connection.openaiWs.send(JSON.stringify({
+              type: 'response.create'
+            }));
+          }
           break;
 
         case 'conversation.item.input_audio_transcription.completed':
@@ -405,6 +421,11 @@ class OpenAIRealtimeService {
     
     const connection = this.connections.get(connectionKey);
     if (connection) {
+      // Notify client to stop playback before closing
+      if (connection.clientWs && connection.clientWs.readyState === WebSocket.OPEN) {
+        connection.clientWs.send(JSON.stringify({ type: 'cleanup' }));
+      }
+
       // Close OpenAI WebSocket
       if (connection.openaiWs && connection.openaiWs.readyState === WebSocket.OPEN) {
         connection.openaiWs.close();

@@ -167,6 +167,15 @@ export function VoiceMode({
         console.log('[VoiceMode] Interrupt acknowledged');
         break;
 
+      case 'cleanup':
+        console.log('[VoiceMode] Server requested cleanup');
+        // Stop output worklet playback
+        if (outputWorkletRef.current) {
+          outputWorkletRef.current.port.postMessage({ command: 'stop' });
+        }
+        setState('idle');
+        break;
+
       case 'error':
         console.error('[VoiceMode] Server error:', message.message);
         toast({
