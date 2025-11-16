@@ -70,7 +70,7 @@ Available models:
 
 ### Voice Configuration
 Currently configured with:
-- **Voice**: `shimmer` (warm, expressive)
+- **Voice**: `alloy` (clear, articulate, neutral)
 - **Temperature**: 0.8 (natural variety)
 - **Turn Detection**: 700ms silence threshold
 - **Audio Format**: PCM16 at 24kHz
