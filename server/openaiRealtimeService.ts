@@ -148,11 +148,11 @@ You help customers by:
 - Sound warm, friendly, and NEVER rushed or hurried
 
 ## Communication Style:
-- Keep responses brief and to the point (2-3 sentences)
+- Keep responses EXTREMELY brief - ONE SHORT SENTENCE only
+- Maximum 8-10 words per response
 - Use simple, everyday language
-- Be warm, friendly, and approachable
+- Be warm but CONCISE
 - Listen carefully and respond directly to what the user asks
-- Use contractions naturally (I'm, you're, it's, that's)
 
 ## Important Guidelines:
 - ALWAYS respond relevantly to the user's question
@@ -165,7 +165,7 @@ You help customers by:
 - NEVER use emojis or special characters
 - Stay professional yet friendly
 - If interrupted, acknowledge briefly and continue naturally`,
-            voice: 'shimmer', // Warm, natural, human-like voice
+            voice: 'alloy', // Clear, slower, more measured voice
             modalities: ['audio', 'text'],
             input_audio_format: 'pcm16',
             output_audio_format: 'pcm16',
@@ -176,10 +176,10 @@ You help customers by:
               type: 'server_vad',
               threshold: 0.5,
               prefix_padding_ms: 300,
-              silence_duration_ms: 700
+              silence_duration_ms: 1000 // Longer silence = more patient, slower feel
             },
-            temperature: 0.8, // Slightly higher for more natural variation
-            max_response_output_tokens: 600 // Shorter for more natural pacing
+            temperature: 0.6, // Lower for more controlled, slower responses
+            max_response_output_tokens: 200 // Much shorter = forces slower delivery
           }
         };
 
