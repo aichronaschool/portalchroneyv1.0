@@ -59,6 +59,8 @@ export function VoiceMode({
   const pendingInterruptRef = useRef(false); // Track interrupt state to ignore late chunks
   const stateRef = useRef(state); // Mutable ref for VAD to check current state
   const bufferedTranscriptRef = useRef<{text: string, isFinal: boolean} | null>(null); // Buffer transcripts during interrupt
+  // Per-turn state tracking to handle async transcripts correctly
+  const turnsRef = useRef<Map<string, { awaitingTranscript: boolean }>>(new Map());
   const audioWorkletNodeRef = useRef<AudioWorkletNode | null>(null); // For capturing raw PCM audio
   const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null); // Fallback for older browsers
   const mediaSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
@@ -202,7 +204,33 @@ export function VoiceMode({
             timestamp: new Date(),
             isFinal: true
           };
-          setMessages(prev => [...prev, userMessage]);
+          
+          // Check if AI response already started (transcript arrived late)
+          // Prefer currentAIMessageIdRef (transcript during streaming) over lastAIMessageIdRef (transcript after ai_done)
+          const aiMessageId = currentAIMessageIdRef.current || lastAIMessageIdRef.current;
+          
+          if (awaitingUserTranscriptRef.current && aiMessageId) {
+            console.log('[VoiceMode] Late user transcript - inserting before AI message:', aiMessageId);
+            setMessages(prev => {
+              // Find the AI message and insert user message before it
+              const aiMessageIndex = prev.findIndex(m => m.id === aiMessageId);
+              if (aiMessageIndex !== -1) {
+                const newMessages = [...prev];
+                newMessages.splice(aiMessageIndex, 0, userMessage);
+                return newMessages;
+              }
+              // AI message not found, add normally (shouldn't happen)
+              console.warn('[VoiceMode] AI message not found for late transcript, adding to end');
+              return [...prev, userMessage];
+            });
+          } else {
+            // Normal flow - add to end
+            setMessages(prev => [...prev, userMessage]);
+          }
+          
+          // Clear reconciliation state
+          awaitingUserTranscriptRef.current = false;
+          lastAIMessageIdRef.current = null;
           setCurrentTranscript('');
           setState('thinking');
         } else {
@@ -216,6 +244,26 @@ export function VoiceMode({
         if (pendingInterruptRef.current) {
           console.log('[VoiceMode] Ignoring late ai_chunk after interrupt');
           return;
+        }
+        
+        // Track turn state (only on first chunk)
+        if (!currentAIMessageIdRef.current) {
+          // First chunk - create new AI message
+          const aiMessageId = Date.now().toString();
+          currentAIMessageIdRef.current = aiMessageId;
+          
+          // Check if user transcript already arrived for this turn
+          setMessages(prev => {
+            const lastMessage = prev[prev.length - 1];
+            const transcriptArrived = lastMessage && lastMessage.role === 'user';
+            
+            // Track this turn
+            turnsRef.current.set(aiMessageId, {
+              awaitingTranscript: !transcriptArrived
+            });
+            
+            return prev; // Don't modify messages here
+          });
         }
         
         // AI streaming chunk - accumulate text for real-time display
@@ -267,6 +315,11 @@ export function VoiceMode({
         }
         
         // AI finished speaking
+        // Save message ID for potential late transcript reconciliation
+        if (awaitingUserTranscriptRef.current && currentAIMessageIdRef.current) {
+          lastAIMessageIdRef.current = currentAIMessageIdRef.current;
+        }
+        // Always clear the working ref
         currentAIMessageIdRef.current = null;
         
         // Stop voice activity detection
