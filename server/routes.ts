@@ -37,6 +37,8 @@ import { randomUUID, randomBytes } from "crypto";
 import fs from "fs";
 import { exec } from "child_process";
 import { promisify } from "util";
+import { WebSocketServer } from "ws";
+import { openaiRealtimeService } from "./openaiRealtimeService";
 
 const execAsync = promisify(exec);
 
@@ -4030,7 +4032,93 @@ Format your response as JSON with this structure:
 
   const httpServer = createServer(app);
 
-  // Voice mode backend functionality has been removed - UI components remain intact
+  // WebSocket server for OpenAI Realtime Voice API
+  const wss = new WebSocketServer({ noServer: true });
+
+  // Helper function to extract session cookie
+  function extractSessionCookie(cookieHeader?: string): string | null {
+    if (!cookieHeader) return null;
+    
+    const cookies = cookieHeader.split(';').map(c => c.trim());
+    for (const cookie of cookies) {
+      const [name, value] = cookie.split('=');
+      if (name === 'session') {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  // Handle WebSocket upgrade for voice connections
+  httpServer.on('upgrade', async (request, socket, head) => {
+    const url = new URL(request.url || '', `http://${request.headers.host}`);
+    
+    if (url.pathname === '/ws/voice') {
+      try {
+        const businessAccountId = url.searchParams.get('businessAccountId');
+        const userId = url.searchParams.get('userId');
+
+        if (!businessAccountId || !userId) {
+          socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+          socket.destroy();
+          return;
+        }
+
+        // Extract and validate session cookie
+        const sessionToken = extractSessionCookie(request.headers.cookie);
+        
+        if (!sessionToken) {
+          console.warn('[WebSocket] No session cookie for voice connection');
+          socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+          socket.destroy();
+          return;
+        }
+
+        // Validate the session
+        const user = await validateSession(sessionToken);
+        
+        if (!user) {
+          console.warn('[WebSocket] Invalid/expired session for voice connection');
+          socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+          socket.destroy();
+          return;
+        }
+
+        // Verify user has access to business account
+        if (user.role !== 'super_admin' && user.businessAccountId !== businessAccountId) {
+          console.warn('[WebSocket] User lacks access to business account');
+          socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+          socket.destroy();
+          return;
+        }
+
+        // Verify userId matches
+        if (user.role !== 'super_admin' && user.id !== userId) {
+          console.warn('[WebSocket] User ID mismatch');
+          socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+          socket.destroy();
+          return;
+        }
+
+        console.log('[WebSocket] Voice connection authenticated:', {
+          userId: user.id,
+          businessAccountId,
+          role: user.role
+        });
+
+        wss.handleUpgrade(request, socket, head, (ws) => {
+          console.log('[WebSocket] Voice connection established');
+          openaiRealtimeService.handleConnection(ws, businessAccountId, userId);
+        });
+      } catch (error: any) {
+        console.error('[WebSocket] Upgrade error:', error);
+        socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
+        socket.destroy();
+      }
+    } else {
+      socket.destroy();
+    }
+  });
 
   return httpServer;
 }
