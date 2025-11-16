@@ -37,8 +37,9 @@ import { randomUUID, randomBytes } from "crypto";
 import fs from "fs";
 import { exec } from "child_process";
 import { promisify } from "util";
+import { deepgramVoiceService } from "./deepgramVoiceService";
 import { WebSocketServer } from "ws";
-import { openaiRealtimeService } from "./openaiRealtimeService";
+import { realtimeVoiceService } from "./realtimeVoiceService";
 
 const execAsync = promisify(exec);
 
@@ -600,6 +601,103 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Voice API Routes
+  // Get Deepgram session token for frontend voice integration
+  // 
+  // ⚠️ SECURITY WARNING: This endpoint currently exposes the global Deepgram API key
+  // to the frontend. This is a known limitation for the initial implementation.
+  // 
+  // TODO: For production deployment, implement one of these security improvements:
+  // 1. Use Deepgram's temporary token API to generate ephemeral session tokens
+  // 2. Implement a WebSocket proxy server to avoid exposing the API key
+  // 3. Use Deepgram's on-premise solution for sensitive deployments
+  // 
+  // Current implementation is acceptable for:
+  // - Development/testing environments
+  // - Trusted user bases with proper authentication
+  // - Scenarios where API key rotation is feasible
+  app.get("/api/voice/token", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      if (!deepgramVoiceService.isConfigured()) {
+        return res.status(503).json({ error: "Voice service not configured" });
+      }
+
+      const token = await deepgramVoiceService.createSessionToken();
+      res.json({ token });
+    } catch (error: any) {
+      console.error('[Voice API] Token error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Process voice message (STT + AI response + optional TTS)
+  app.post("/api/voice/process", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const user = req.user!;
+      const { audioData, returnAudio = true } = req.body;
+
+      // Input validation: Check audioData exists
+      if (!audioData) {
+        return res.status(400).json({ error: "Audio data required" });
+      }
+
+      // Input validation: Ensure audioData is a string
+      if (typeof audioData !== 'string') {
+        return res.status(400).json({ error: "Audio data must be a base64 string" });
+      }
+
+      // Input validation: Check for valid base64 format
+      const base64Pattern = /^[A-Za-z0-9+/]*={0,2}$/;
+      if (!base64Pattern.test(audioData)) {
+        return res.status(400).json({ error: "Invalid base64 audio data format" });
+      }
+
+      // Input validation: Check size limits (max 10MB base64 ≈ 7.5MB audio)
+      const MAX_AUDIO_SIZE = 10 * 1024 * 1024; // 10MB in bytes
+      if (audioData.length > MAX_AUDIO_SIZE) {
+        return res.status(400).json({ 
+          error: "Audio data exceeds maximum size limit of 10MB" 
+        });
+      }
+
+      if (!deepgramVoiceService.isConfigured()) {
+        return res.status(503).json({ error: "Voice service not configured" });
+      }
+
+      // Convert base64 audio to buffer
+      let audioBuffer: Buffer;
+      try {
+        audioBuffer = Buffer.from(audioData, 'base64');
+      } catch (decodeError) {
+        return res.status(400).json({ error: "Failed to decode base64 audio data" });
+      }
+
+      // Verify decoded buffer is not empty
+      if (audioBuffer.length === 0) {
+        return res.status(400).json({ error: "Audio data is empty" });
+      }
+
+      // Process voice message through Deepgram service
+      // businessAccountId and userId are correctly extracted from req.user
+      const result = await deepgramVoiceService.processVoiceMessage(
+        audioBuffer,
+        user.businessAccountId!,
+        user.id,
+        returnAudio
+      );
+
+      // Return transcript, AI response, optional audio, and products
+      res.json({
+        transcript: result.transcript,
+        response: result.response,
+        audio: result.audio ? result.audio.toString('base64') : undefined,
+        products: result.products
+      });
+    } catch (error: any) {
+      console.error('[Voice API] Processing error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
 
   // Helper function for rotating intro messages (Phase 1 optimization)
   const getRandomIntroMessage = () => {
@@ -923,11 +1021,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // SuperAdmin: Update API settings (OpenAI API key and currency) for a business account
+  // SuperAdmin: Update API settings (OpenAI API key, Deepgram API key, and currency) for a business account
   app.patch("/api/business-accounts/:id/api-settings", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
       const { id } = req.params;
-      const { openaiApiKey, currency } = req.body;
+      const { openaiApiKey, deepgramApiKey, currency } = req.body;
       
       // Verify business account exists
       const businessAccount = await storage.getBusinessAccount(id);
@@ -941,6 +1039,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ error: "OpenAI API key must be a string" });
         }
         await storage.updateBusinessAccountOpenAIKey(id, openaiApiKey || null);
+      }
+      
+      // Update Deepgram API key if provided (encrypted in storage layer)
+      if (deepgramApiKey !== undefined) {
+        if (deepgramApiKey && typeof deepgramApiKey !== 'string') {
+          return res.status(400).json({ error: "Deepgram API key must be a string" });
+        }
+        await storage.updateBusinessAccountDeepgramKey(id, deepgramApiKey || null);
       }
       
       // Update currency in widget settings if provided
@@ -963,6 +1069,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({
         businessAccountId: updated!.id,
         openaiApiKey: updated!.openaiApiKey ? `sk-...${updated!.openaiApiKey.slice(-4)}` : null,
+        deepgramApiKey: updated!.deepgramApiKey ? `...${updated!.deepgramApiKey.slice(-4)}` : null,
         currency: widgetSettings?.currency || "USD",
       });
     } catch (error: any) {
@@ -989,6 +1096,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         businessName: businessAccount.name,
         openaiApiKey: businessAccount.openaiApiKey ? `sk-...${businessAccount.openaiApiKey.slice(-4)}` : null,
         hasOpenAIKey: !!businessAccount.openaiApiKey,
+        deepgramApiKey: businessAccount.deepgramApiKey ? `...${businessAccount.deepgramApiKey.slice(-4)}` : null,
+        hasDeepgramKey: !!businessAccount.deepgramApiKey,
         currency: widgetSettings?.currency || "USD",
       });
     } catch (error: any) {
@@ -4032,10 +4141,9 @@ Format your response as JSON with this structure:
 
   const httpServer = createServer(app);
 
-  // WebSocket server for OpenAI Realtime Voice API
   const wss = new WebSocketServer({ noServer: true });
 
-  // Helper function to extract session cookie
+  // Helper function to extract session cookie from cookie header
   function extractSessionCookie(cookieHeader?: string): string | null {
     if (!cookieHeader) return null;
     
@@ -4049,7 +4157,6 @@ Format your response as JSON with this structure:
     return null;
   }
 
-  // Handle WebSocket upgrade for voice connections
   httpServer.on('upgrade', async (request, socket, head) => {
     const url = new URL(request.url || '', `http://${request.headers.host}`);
     
@@ -4064,37 +4171,47 @@ Format your response as JSON with this structure:
           return;
         }
 
-        // Extract and validate session cookie
+        // SECURITY: Extract and validate session cookie
         const sessionToken = extractSessionCookie(request.headers.cookie);
         
         if (!sessionToken) {
-          console.warn('[WebSocket] No session cookie for voice connection');
+          console.warn('[WebSocket] No session cookie provided for voice connection');
           socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
           socket.destroy();
           return;
         }
 
-        // Validate the session
+        // SECURITY: Validate the session and get user
         const user = await validateSession(sessionToken);
         
         if (!user) {
-          console.warn('[WebSocket] Invalid/expired session for voice connection');
+          console.warn('[WebSocket] Invalid or expired session for voice connection');
           socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
           socket.destroy();
           return;
         }
 
-        // Verify user has access to business account
+        // SECURITY: Verify user has access to the requested business account
+        // Super admins can access any business account
+        // Regular users can only access their own business account
         if (user.role !== 'super_admin' && user.businessAccountId !== businessAccountId) {
-          console.warn('[WebSocket] User lacks access to business account');
+          console.warn('[WebSocket] User does not have access to business account:', {
+            userId: user.id,
+            userBusinessAccountId: user.businessAccountId,
+            requestedBusinessAccountId: businessAccountId
+          });
           socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
           socket.destroy();
           return;
         }
 
-        // Verify userId matches
+        // SECURITY: Verify the userId matches the authenticated user
+        // (or allow super_admin to impersonate for testing)
         if (user.role !== 'super_admin' && user.id !== userId) {
-          console.warn('[WebSocket] User ID mismatch');
+          console.warn('[WebSocket] User ID mismatch:', {
+            authenticatedUserId: user.id,
+            requestedUserId: userId
+          });
           socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
           socket.destroy();
           return;
@@ -4108,7 +4225,7 @@ Format your response as JSON with this structure:
 
         wss.handleUpgrade(request, socket, head, (ws) => {
           console.log('[WebSocket] Voice connection established');
-          openaiRealtimeService.handleConnection(ws, businessAccountId, userId);
+          realtimeVoiceService.handleConnection(ws, businessAccountId, userId);
         });
       } catch (error: any) {
         console.error('[WebSocket] Upgrade error:', error);
