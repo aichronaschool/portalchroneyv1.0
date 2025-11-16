@@ -17,7 +17,6 @@ __export(schema_exports, {
   categories: () => categories,
   conversations: () => conversations,
   demoPages: () => demoPages,
-  draftFaqs: () => draftFaqs,
   faqs: () => faqs,
   insertAnalyzedPageSchema: () => insertAnalyzedPageSchema,
   insertAppointmentSchema: () => insertAppointmentSchema,
@@ -25,7 +24,6 @@ __export(schema_exports, {
   insertCategorySchema: () => insertCategorySchema,
   insertConversationSchema: () => insertConversationSchema,
   insertDemoPageSchema: () => insertDemoPageSchema,
-  insertDraftFaqSchema: () => insertDraftFaqSchema,
   insertFaqSchema: () => insertFaqSchema,
   insertLeadSchema: () => insertLeadSchema,
   insertMessageSchema: () => insertMessageSchema,
@@ -34,10 +32,12 @@ __export(schema_exports, {
   insertProductRelationshipSchema: () => insertProductRelationshipSchema,
   insertProductSchema: () => insertProductSchema,
   insertProductTagSchema: () => insertProductTagSchema,
+  insertPublicChatLinkSchema: () => insertPublicChatLinkSchema,
   insertScheduleTemplateSchema: () => insertScheduleTemplateSchema,
   insertSessionSchema: () => insertSessionSchema,
   insertSlotOverrideSchema: () => insertSlotOverrideSchema,
   insertTagSchema: () => insertTagSchema,
+  insertTrainingDocumentSchema: () => insertTrainingDocumentSchema,
   insertUserSchema: () => insertUserSchema,
   insertWebsiteAnalysisSchema: () => insertWebsiteAnalysisSchema,
   insertWidgetSettingsSchema: () => insertWidgetSettingsSchema,
@@ -48,10 +48,12 @@ __export(schema_exports, {
   productRelationships: () => productRelationships,
   productTags: () => productTags,
   products: () => products,
+  publicChatLinks: () => publicChatLinks,
   scheduleTemplates: () => scheduleTemplates,
   sessions: () => sessions,
   slotOverrides: () => slotOverrides,
   tags: () => tags,
+  trainingDocuments: () => trainingDocuments,
   users: () => users,
   websiteAnalysis: () => websiteAnalysis,
   widgetSettings: () => widgetSettings
@@ -59,7 +61,7 @@ __export(schema_exports, {
 import { sql } from "drizzle-orm";
 import { pgTable, text, varchar, timestamp, numeric } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
-var businessAccounts, users, sessions, passwordResetTokens, conversations, messages, products, faqs, draftFaqs, leads, widgetSettings, websiteAnalysis, analyzedPages, categories, tags, productCategories, productTags, productRelationships, scheduleTemplates, slotOverrides, appointments, demoPages, insertBusinessAccountSchema, insertUserSchema, insertSessionSchema, insertPasswordResetTokenSchema, insertConversationSchema, insertMessageSchema, insertProductSchema, insertFaqSchema, insertDraftFaqSchema, insertLeadSchema, insertWidgetSettingsSchema, insertWebsiteAnalysisSchema, insertAnalyzedPageSchema, insertCategorySchema, insertTagSchema, insertProductCategorySchema, insertProductTagSchema, insertProductRelationshipSchema, insertScheduleTemplateSchema, insertSlotOverrideSchema, insertAppointmentSchema, insertDemoPageSchema;
+var businessAccounts, users, sessions, passwordResetTokens, conversations, messages, products, faqs, leads, widgetSettings, websiteAnalysis, analyzedPages, trainingDocuments, categories, tags, productCategories, productTags, productRelationships, scheduleTemplates, slotOverrides, appointments, demoPages, publicChatLinks, insertBusinessAccountSchema, insertUserSchema, insertSessionSchema, insertPasswordResetTokenSchema, insertConversationSchema, insertMessageSchema, insertProductSchema, insertFaqSchema, insertLeadSchema, insertWidgetSettingsSchema, insertWebsiteAnalysisSchema, insertAnalyzedPageSchema, insertTrainingDocumentSchema, insertCategorySchema, insertTagSchema, insertProductCategorySchema, insertProductTagSchema, insertProductRelationshipSchema, insertScheduleTemplateSchema, insertSlotOverrideSchema, insertAppointmentSchema, insertDemoPageSchema, insertPublicChatLinkSchema;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -85,6 +87,8 @@ var init_schema = __esm({
       // 'true' | 'false' - SuperAdmin toggle for Shopify features (text for consistency with other flags)
       appointmentsEnabled: text("appointments_enabled").notNull().default("false"),
       // 'true' | 'false' - SuperAdmin toggle for Appointment features (text for consistency with other flags)
+      voiceModeEnabled: text("voice_mode_enabled").notNull().default("true"),
+      // 'true' | 'false' - SuperAdmin toggle for Voice Mode feature (text for consistency with other flags)
       createdAt: timestamp("created_at").notNull().defaultNow(),
       updatedAt: timestamp("updated_at").notNull().defaultNow()
     });
@@ -162,17 +166,6 @@ var init_schema = __esm({
       createdAt: timestamp("created_at").notNull().defaultNow(),
       updatedAt: timestamp("updated_at").notNull().defaultNow()
     });
-    draftFaqs = pgTable("draft_faqs", {
-      id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-      businessAccountId: varchar("business_account_id").notNull().references(() => businessAccounts.id, { onDelete: "cascade" }),
-      question: text("question").notNull(),
-      answer: text("answer").notNull(),
-      category: text("category"),
-      sourceUrl: text("source_url"),
-      // Track which website the FAQ was generated from
-      createdAt: timestamp("created_at").notNull().defaultNow(),
-      updatedAt: timestamp("updated_at").notNull().defaultNow()
-    });
     leads = pgTable("leads", {
       id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
       businessAccountId: varchar("business_account_id").notNull().references(() => businessAccounts.id, { onDelete: "cascade" }),
@@ -221,6 +214,20 @@ var init_schema = __esm({
       // Twilio Auth Token for WhatsApp
       twilioWhatsappFrom: text("twilio_whatsapp_from"),
       // Twilio WhatsApp number (e.g., whatsapp:+14155238886)
+      // Widget size customization
+      widgetWidth: numeric("widget_width", { precision: 5, scale: 0 }).notNull().default("400"),
+      // Widget width in pixels
+      widgetHeight: numeric("widget_height", { precision: 5, scale: 0 }).notNull().default("600"),
+      // Widget height in pixels
+      widgetPosition: text("widget_position").notNull().default("bottom-right"),
+      // 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left'
+      bubbleSize: numeric("bubble_size", { precision: 3, scale: 0 }).notNull().default("60"),
+      // Chat bubble button size in pixels
+      sizePreset: text("size_preset").notNull().default("medium"),
+      // 'small' | 'medium' | 'large' | 'custom'
+      // Widget behavior
+      autoOpenChat: text("auto_open_chat").notNull().default("false"),
+      // 'true' | 'false' - Auto-open chat on page load
       createdAt: timestamp("created_at").notNull().defaultNow(),
       updatedAt: timestamp("updated_at").notNull().defaultNow()
     });
@@ -245,6 +252,30 @@ var init_schema = __esm({
       extractedContent: text("extracted_content"),
       analyzedAt: timestamp("analyzed_at").notNull().defaultNow(),
       createdAt: timestamp("created_at").notNull().defaultNow()
+    });
+    trainingDocuments = pgTable("training_documents", {
+      id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+      businessAccountId: varchar("business_account_id").notNull().references(() => businessAccounts.id, { onDelete: "cascade" }),
+      filename: text("filename").notNull(),
+      originalFilename: text("original_filename").notNull(),
+      fileSize: numeric("file_size", { precision: 10, scale: 0 }).notNull(),
+      // File size in bytes
+      storageKey: text("storage_key").notNull(),
+      // Path to stored file
+      uploadStatus: text("upload_status").notNull().default("pending"),
+      // 'pending' | 'processing' | 'completed' | 'failed'
+      extractedText: text("extracted_text"),
+      // Full text extracted from PDF
+      summary: text("summary"),
+      // AI-generated summary
+      keyPoints: text("key_points"),
+      // AI-generated key points as JSON array
+      errorMessage: text("error_message"),
+      // Error details if processing fails
+      uploadedBy: varchar("uploaded_by").notNull().references(() => users.id, { onDelete: "cascade" }),
+      processedAt: timestamp("processed_at"),
+      createdAt: timestamp("created_at").notNull().defaultNow(),
+      updatedAt: timestamp("updated_at").notNull().defaultNow()
     });
     categories = pgTable("categories", {
       id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -371,6 +402,23 @@ var init_schema = __esm({
       createdAt: timestamp("created_at").notNull().defaultNow(),
       updatedAt: timestamp("updated_at").notNull().defaultNow()
     });
+    publicChatLinks = pgTable("public_chat_links", {
+      id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+      businessAccountId: varchar("business_account_id").notNull().unique().references(() => businessAccounts.id, { onDelete: "cascade" }),
+      // One link per business account
+      token: text("token").notNull().unique(),
+      // Unique token for public shareable link
+      isActive: text("is_active").notNull().default("true"),
+      // 'true' | 'false' - Enable/disable the link
+      password: text("password"),
+      // Optional password for protected access
+      lastAccessedAt: timestamp("last_accessed_at"),
+      // Track when link was last used
+      accessCount: numeric("access_count", { precision: 10, scale: 0 }).notNull().default("0"),
+      // Number of times accessed
+      createdAt: timestamp("created_at").notNull().defaultNow(),
+      updatedAt: timestamp("updated_at").notNull().defaultNow()
+    });
     insertBusinessAccountSchema = createInsertSchema(businessAccounts).omit({
       id: true,
       createdAt: true,
@@ -412,11 +460,6 @@ var init_schema = __esm({
       createdAt: true,
       updatedAt: true
     });
-    insertDraftFaqSchema = createInsertSchema(draftFaqs).omit({
-      id: true,
-      createdAt: true,
-      updatedAt: true
-    });
     insertLeadSchema = createInsertSchema(leads).omit({
       id: true,
       createdAt: true
@@ -436,6 +479,12 @@ var init_schema = __esm({
       id: true,
       createdAt: true,
       analyzedAt: true
+    });
+    insertTrainingDocumentSchema = createInsertSchema(trainingDocuments).omit({
+      id: true,
+      createdAt: true,
+      updatedAt: true,
+      processedAt: true
     });
     insertCategorySchema = createInsertSchema(categories).omit({
       id: true,
@@ -482,6 +531,14 @@ var init_schema = __esm({
       createdAt: true,
       updatedAt: true,
       lastViewedAt: true
+    });
+    insertPublicChatLinkSchema = createInsertSchema(publicChatLinks).omit({
+      id: true,
+      token: true,
+      createdAt: true,
+      updatedAt: true,
+      lastAccessedAt: true,
+      accessCount: true
     });
   }
 });
@@ -774,39 +831,6 @@ var init_storage = __esm({
       async deleteFaq(id, businessAccountId) {
         await db.delete(faqs).where(and(eq(faqs.id, id), eq(faqs.businessAccountId, businessAccountId)));
       }
-      // Draft FAQ methods
-      async createDraftFaq(insertDraftFaq) {
-        const [draftFaq] = await db.insert(draftFaqs).values(insertDraftFaq).returning();
-        return draftFaq;
-      }
-      async getDraftFaq(id, businessAccountId) {
-        const [draftFaq] = await db.select().from(draftFaqs).where(and(eq(draftFaqs.id, id), eq(draftFaqs.businessAccountId, businessAccountId)));
-        return draftFaq || void 0;
-      }
-      async getAllDraftFaqs(businessAccountId) {
-        return await db.select().from(draftFaqs).where(eq(draftFaqs.businessAccountId, businessAccountId)).orderBy(desc(draftFaqs.createdAt));
-      }
-      async updateDraftFaq(id, businessAccountId, draftFaqData) {
-        const [draftFaq] = await db.update(draftFaqs).set({ ...draftFaqData, updatedAt: /* @__PURE__ */ new Date() }).where(and(eq(draftFaqs.id, id), eq(draftFaqs.businessAccountId, businessAccountId))).returning();
-        return draftFaq;
-      }
-      async deleteDraftFaq(id, businessAccountId) {
-        await db.delete(draftFaqs).where(and(eq(draftFaqs.id, id), eq(draftFaqs.businessAccountId, businessAccountId)));
-      }
-      async publishDraftFaq(id, businessAccountId) {
-        const draftFaq = await this.getDraftFaq(id, businessAccountId);
-        if (!draftFaq) {
-          throw new Error("Draft FAQ not found");
-        }
-        const faq = await this.createFaq({
-          businessAccountId: draftFaq.businessAccountId,
-          question: draftFaq.question,
-          answer: draftFaq.answer,
-          category: draftFaq.category
-        });
-        await this.deleteDraftFaq(id, businessAccountId);
-        return faq;
-      }
       // Lead methods
       async createLead(insertLead) {
         const [lead] = await db.insert(leads).values(insertLead).returning();
@@ -912,8 +936,59 @@ var init_storage = __esm({
         const pages = await db.select().from(analyzedPages).where(eq(analyzedPages.businessAccountId, businessAccountId)).orderBy(desc(analyzedPages.analyzedAt));
         return pages;
       }
+      async deleteAnalyzedPage(id, businessAccountId) {
+        await db.delete(analyzedPages).where(
+          and(
+            eq(analyzedPages.id, id),
+            eq(analyzedPages.businessAccountId, businessAccountId)
+          )
+        );
+      }
       async deleteAnalyzedPages(businessAccountId) {
         await db.delete(analyzedPages).where(eq(analyzedPages.businessAccountId, businessAccountId));
+      }
+      // Training Documents methods
+      async createTrainingDocument(document2) {
+        const [created] = await db.insert(trainingDocuments).values(document2).returning();
+        return created;
+      }
+      async getTrainingDocument(id, businessAccountId) {
+        const [document2] = await db.select().from(trainingDocuments).where(
+          and(
+            eq(trainingDocuments.id, id),
+            eq(trainingDocuments.businessAccountId, businessAccountId)
+          )
+        );
+        return document2 || void 0;
+      }
+      async getTrainingDocuments(businessAccountId) {
+        const documents = await db.select().from(trainingDocuments).where(eq(trainingDocuments.businessAccountId, businessAccountId)).orderBy(desc(trainingDocuments.createdAt));
+        return documents;
+      }
+      async updateTrainingDocumentStatus(id, status, errorMessage) {
+        await db.update(trainingDocuments).set({
+          uploadStatus: status,
+          errorMessage: errorMessage || null,
+          updatedAt: /* @__PURE__ */ new Date()
+        }).where(eq(trainingDocuments.id, id));
+      }
+      async updateTrainingDocumentContent(id, extractedText, summary, keyPoints) {
+        await db.update(trainingDocuments).set({
+          extractedText,
+          summary,
+          keyPoints,
+          uploadStatus: "completed",
+          processedAt: /* @__PURE__ */ new Date(),
+          updatedAt: /* @__PURE__ */ new Date()
+        }).where(eq(trainingDocuments.id, id));
+      }
+      async deleteTrainingDocument(id, businessAccountId) {
+        await db.delete(trainingDocuments).where(
+          and(
+            eq(trainingDocuments.id, id),
+            eq(trainingDocuments.businessAccountId, businessAccountId)
+          )
+        );
       }
       // Category methods
       async createCategory(category) {
@@ -1337,6 +1412,59 @@ var init_storage = __esm({
       async deleteDemoPage(id) {
         await db.delete(demoPages).where(eq(demoPages.id, id));
       }
+      // Public Chat Link methods
+      async getOrCreatePublicChatLink(businessAccountId) {
+        const [existing] = await db.select().from(publicChatLinks).where(eq(publicChatLinks.businessAccountId, businessAccountId));
+        if (existing) {
+          return existing;
+        }
+        const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+        const [created] = await db.insert(publicChatLinks).values({
+          businessAccountId,
+          token,
+          isActive: "true"
+        }).returning();
+        return created;
+      }
+      async getPublicChatLinkByToken(token) {
+        const [link] = await db.select().from(publicChatLinks).where(eq(publicChatLinks.token, token));
+        return link;
+      }
+      async togglePublicChatLinkStatus(businessAccountId) {
+        const [current] = await db.select().from(publicChatLinks).where(eq(publicChatLinks.businessAccountId, businessAccountId));
+        if (!current) {
+          throw new Error("Public chat link not found");
+        }
+        const newStatus = current.isActive === "true" ? "false" : "true";
+        const [updated] = await db.update(publicChatLinks).set({
+          isActive: newStatus,
+          updatedAt: /* @__PURE__ */ new Date()
+        }).where(eq(publicChatLinks.businessAccountId, businessAccountId)).returning();
+        return updated;
+      }
+      async regeneratePublicChatLinkToken(businessAccountId, newToken) {
+        const [updated] = await db.update(publicChatLinks).set({
+          token: newToken,
+          updatedAt: /* @__PURE__ */ new Date()
+        }).where(eq(publicChatLinks.businessAccountId, businessAccountId)).returning();
+        return updated;
+      }
+      async updatePublicChatLinkAccess(token) {
+        await db.update(publicChatLinks).set({
+          lastAccessedAt: /* @__PURE__ */ new Date(),
+          accessCount: sql2`${publicChatLinks.accessCount} + 1`
+        }).where(eq(publicChatLinks.token, token));
+      }
+      async updatePublicChatLinkPassword(businessAccountId, password) {
+        const [updated] = await db.update(publicChatLinks).set({
+          password,
+          updatedAt: /* @__PURE__ */ new Date()
+        }).where(eq(publicChatLinks.businessAccountId, businessAccountId)).returning();
+        if (!updated) {
+          throw new Error("Public chat link not found");
+        }
+        return updated;
+      }
     };
     storage = new DatabaseStorage();
   }
@@ -1524,6 +1652,75 @@ var init_websiteAnalysisService = __esm({
         return false;
       }
       /**
+       * Process raw extracted content into structured bullet points using AI
+       * Extracts only business-relevant information in a readable format
+       */
+      async processContentToBulletPoints(rawContent, pageUrl, apiKey) {
+        try {
+          const openai = new OpenAI2({ apiKey });
+          const systemPrompt = `You are a business analyst extracting key information from website content.
+Your task is to analyze the provided content and extract ONLY the most important business-relevant information.
+
+Format your response as clean, organized bullet points. Group related information under clear headings.
+
+ALWAYS extract these if present (even from legal/terms/privacy pages):
+- Company name, legal entity name, registration numbers
+- Founders, founding year, company history
+- Leadership team members and key personnel
+- Business address, headquarters location
+- Contact information (email, phone)
+- Key products or services offered
+- Important features or benefits
+- Business hours or operational details
+- Pricing information
+- Certifications, licenses, compliance standards
+- Unique policies that differentiate the business
+- Data handling practices customers should know about
+- Refund, warranty, or guarantee policies
+
+IGNORE these (do not extract):
+- Generic warranty disclaimers ("provided as-is", "without warranty")
+- Liability limitation clauses
+- Legal jargon about jurisdiction or arbitration
+- Cookie consent boilerplate
+- Standard indemnification clauses
+- Navigation menus and headers/footers
+- "Last updated" timestamps (unless part of a version or history note)
+
+Extraction rules:
+- Maximum 1-2 sentences per bullet point
+- If a Terms page says "Founded by John Smith in 2020" \u2192 EXTRACT IT
+- If a Privacy Policy lists company address \u2192 EXTRACT IT
+- If legal text is pure disclaimers with no business facts \u2192 return "No relevant business information found on this page."
+- Summarize long policy explanations into concise bullets
+- Only include information explicitly stated in the content`;
+          const userPrompt = `Page URL: ${pageUrl}
+
+Raw Content:
+${rawContent.substring(0, 15e3)} ${rawContent.length > 15e3 ? "(content truncated)" : ""}
+
+Extract and organize the key business information as bullet points.`;
+          const completion = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: userPrompt }
+            ],
+            temperature: 0.3,
+            max_tokens: 1e3
+          });
+          const processedContent = completion.choices[0]?.message?.content?.trim();
+          if (!processedContent || processedContent === "") {
+            return "No relevant business information found on this page.";
+          }
+          return processedContent;
+        } catch (error) {
+          console.error("[Website Analysis] Error processing content to bullet points:", error);
+          return `Content preview:
+${rawContent.substring(0, 500)}...`;
+        }
+      }
+      /**
        * Create a cancellable timeout promise
        */
       createCancellableTimeout(ms, message) {
@@ -1643,7 +1840,7 @@ var init_websiteAnalysisService = __esm({
             if (normalizedUrl === homeNormalized || normalizedUrl === `${baseOrigin}/`) {
               return;
             }
-            const path4 = absoluteUrl.pathname.toLowerCase();
+            const path5 = absoluteUrl.pathname.toLowerCase();
             const skipPatterns = [
               "/login",
               "/signup",
@@ -1664,7 +1861,7 @@ var init_websiteAnalysisService = __esm({
               ".doc",
               ".docx"
             ];
-            if (skipPatterns.some((pattern) => path4.includes(pattern))) {
+            if (skipPatterns.some((pattern) => path5.includes(pattern))) {
               return;
             }
             if (pageMap.has(normalizedUrl)) {
@@ -1730,18 +1927,27 @@ ${pageContent}
           const allAnalyzedPages = Array.from(pageContentMap.keys());
           for (const pageUrl of allAnalyzedPages) {
             try {
-              const extractedContent = pageContentMap.get(pageUrl);
+              const rawContent = pageContentMap.get(pageUrl);
+              if (!rawContent) {
+                continue;
+              }
+              console.log("[Website Analysis] Processing content for:", pageUrl);
+              const processedContent = await this.processContentToBulletPoints(
+                rawContent,
+                pageUrl,
+                openaiApiKey
+              );
               await storage.createAnalyzedPage({
                 businessAccountId,
                 pageUrl,
-                extractedContent: extractedContent || null
+                extractedContent: processedContent
               });
-              console.log("[Website Analysis] Saved analyzed page with content:", pageUrl);
+              console.log("[Website Analysis] Saved analyzed page with processed content:", pageUrl);
             } catch (error) {
               console.error("[Website Analysis] Error saving analyzed page:", pageUrl, error);
             }
           }
-          console.log(`[Website Analysis] Saved ${allAnalyzedPages.length} pages with individual content`);
+          console.log(`[Website Analysis] Saved ${allAnalyzedPages.length} pages with processed content`);
           await storage.updateWebsiteAnalysisStatus(businessAccountId, "completed");
           console.log("[Website Analysis] Analysis completed successfully");
         } catch (error) {
@@ -1783,6 +1989,7 @@ ${pageContent}
           await storage.updateWebsiteAnalysisStatus(businessAccountId, "analyzing");
           console.log("[Website Analysis] Analyzing", pageUrls.length, "pages in", appendMode ? "append" : "replace", "mode");
           let combinedContent = "";
+          const pageContentMap = /* @__PURE__ */ new Map();
           for (const pageUrl of pageUrls) {
             try {
               console.log("[Website Analysis] Scraping:", pageUrl);
@@ -1792,6 +1999,7 @@ ${pageContent}
 ${pageContent}
 
 `;
+              pageContentMap.set(pageUrl, pageContent);
             } catch (error) {
               console.error("[Website Analysis] Error scraping page:", pageUrl, error);
             }
@@ -1827,16 +2035,33 @@ ${pageContent}
           const uniquePages = Array.from(new Set(pageUrls.map((url) => url.toLowerCase().replace(/\/$/, ""))));
           for (const pageUrl of uniquePages) {
             try {
-              await storage.createAnalyzedPage({
-                businessAccountId,
-                pageUrl
-              });
-              console.log("[Website Analysis] Saved analyzed page:", pageUrl);
+              const rawContent = pageContentMap.get(pageUrl);
+              if (rawContent) {
+                console.log("[Website Analysis] Processing content for:", pageUrl);
+                const processedContent = await this.processContentToBulletPoints(
+                  rawContent,
+                  pageUrl,
+                  openaiApiKey
+                );
+                await storage.createAnalyzedPage({
+                  businessAccountId,
+                  pageUrl,
+                  extractedContent: processedContent
+                });
+                console.log("[Website Analysis] Saved analyzed page with processed content:", pageUrl);
+              } else {
+                await storage.createAnalyzedPage({
+                  businessAccountId,
+                  pageUrl,
+                  extractedContent: null
+                });
+                console.log("[Website Analysis] Saved analyzed page without content:", pageUrl);
+              }
             } catch (error) {
               console.error("[Website Analysis] Error saving analyzed page:", pageUrl, error);
             }
           }
-          console.log(`[Website Analysis] Saved ${uniquePages.length} unique pages out of ${pageUrls.length} total`);
+          console.log(`[Website Analysis] Saved ${uniquePages.length} unique pages with processed content`);
           await storage.updateWebsiteAnalysisStatus(businessAccountId, "completed");
           console.log("[Website Analysis] Analysis completed successfully");
         } catch (error) {
@@ -2588,7 +2813,8 @@ function toMeResponseDto(user, businessAccount) {
         name: businessAccount.name,
         status: businessAccount.status,
         shopifyEnabled: businessAccount.shopifyEnabled,
-        appointmentsEnabled: businessAccount.appointmentsEnabled
+        appointmentsEnabled: businessAccount.appointmentsEnabled,
+        voiceModeEnabled: businessAccount.voiceModeEnabled
       }
     };
   }
@@ -2613,14 +2839,16 @@ function toBusinessAccountDto(account) {
   return {
     ...account,
     shopifyEnabled: account.shopifyEnabled === "true",
-    appointmentsEnabled: account.appointmentsEnabled === "true"
+    appointmentsEnabled: account.appointmentsEnabled === "true",
+    voiceModeEnabled: account.voiceModeEnabled === "true"
   };
 }
 function fromBusinessAccountDto(dto) {
   return {
     ...dto,
     shopifyEnabled: dto.shopifyEnabled ? "true" : "false",
-    appointmentsEnabled: dto.appointmentsEnabled ? "true" : "false"
+    appointmentsEnabled: dto.appointmentsEnabled ? "true" : "false",
+    voiceModeEnabled: dto.voiceModeEnabled ? "true" : "false"
   };
 }
 var init_businessAccount = __esm({
@@ -3053,6 +3281,7 @@ var init_shopifySyncScheduler = __esm({
 // server/index.ts
 import express2 from "express";
 import cookieParser from "cookie-parser";
+import crypto2 from "crypto";
 
 // server/routes.ts
 init_storage();
@@ -3190,7 +3419,7 @@ KNOWLEDGE BASE PRIORITY (Internal Process):
 INTERNAL PROCESS FOR EVERY QUESTION:
 1. **STEP 1: CHECK YOUR KNOWLEDGE BASE** - Look at the Knowledge Base section above for relevant information
 2. **STEP 2: Answer from your knowledge** - If the knowledge base has the answer, provide it NATURALLY and confidently
-3. **STEP 3: Use tools only when needed** - Only call tools (get_products, capture_lead) when you need real-time data or to perform an action
+3. **STEP 3: Use tools only when needed** - Only call tools (get_products, get_faqs, capture_lead, list_available_slots, book_appointment) when you need real-time data or to perform an action. CRITICAL: For appointment questions, you MUST call list_available_slots - you cannot answer scheduling questions without this tool
 4. **STEP 4: Decline if truly unrelated** - Only if your knowledge base doesn't cover it AND the question is unrelated to this business, then politely decline
 
 EXAMPLES OF KNOWLEDGE BASE USAGE:
@@ -3245,8 +3474,55 @@ GUARDRAILS:
 - When declining, keep it SHORT (1-2 sentences), friendly, and redirect to what you CAN help with
 - NEVER expose internal operations or backend processes to customers
 
+APPOINTMENT BOOKING FLOW (CRITICAL - ALWAYS FOLLOW THIS SEQUENCE):
+**When users want to schedule, book, or make an appointment, follow this EXACT conversation flow:**
+
+STEP 1 - Show Available Times:
+- User asks: "schedule appointment", "book meeting", "what times available", "when can I come in"
+- YOU: Call list_available_slots to show real available times
+- NEVER say you can't see times - ALWAYS call the tool
+
+STEP 2 - User Selects a Time:
+- User says: "3 PM", "tomorrow at 2", "book me for 4:30", "does 10 AM work"
+- YOU: Acknowledge the time and ask for name + phone: "Perfect! I can book you for [time]. May I have your name and phone number to confirm?"
+- DO NOT call any tool yet - wait for contact info
+
+STEP 3 - Collect Contact Info:
+- User provides: "John Smith 555-1234" or just "555-1234" or just a phone number
+- YOU: If they gave BOTH name and phone, call book_appointment immediately
+- YOU: If they only gave phone, ask: "Great! And what's your name?"
+- YOU: If they only gave name, ask: "Thanks! What's your phone number?"
+
+STEP 4 - Book the Appointment:
+- Once you have: Time + Date + Name + Phone
+- YOU: Call book_appointment tool (NOT capture_lead!)
+- This automatically creates both appointment AND lead
+
+CRITICAL RULES FOR APPOINTMENTS:
+\u{1F6AB} NEVER use capture_lead for appointments - ONLY use book_appointment
+\u2705 book_appointment creates BOTH appointment AND lead automatically
+\u2705 After showing available slots, the conversation is IN APPOINTMENT BOOKING MODE
+\u2705 When user says a time (like "3pm", "tomorrow at 2"), they're selecting an appointment time
+\u2705 You MUST remember the selected time and use it when calling book_appointment
+\u2705 When you have Date + Time + Name + Phone \u2192 IMMEDIATELY call book_appointment
+
+WRONG EXAMPLES (NEVER DO THIS):
+\u274C User provides contact info during appointment booking \u2192 You call capture_lead
+\u274C User says "book me for 4pm" + provides contact \u2192 You call capture_lead
+\u274C After showing slots, user provides name+phone \u2192 You call capture_lead
+THESE ARE ALL WRONG! Always use book_appointment when booking appointments!
+
+RIGHT EXAMPLE:
+\u2705 User: "schedule appointment tomorrow"
+\u2705 You: Call list_available_slots \u2192 show times
+\u2705 User: "4pm"
+\u2705 You: "Perfect! I can book you for 4pm. May I have your name and phone?"
+\u2705 User: "Rohit 9898989000"
+\u2705 You: Call book_appointment with {patient_name: "Rohit", patient_phone: "9898989000", appointment_date: "2025-11-16", appointment_time: "16:00"}
+
 PROACTIVE LEAD CAPTURE (CRITICAL - SALES & CONVERSION PRIORITY):
 **ALWAYS watch for buying intent signals and proactively ask for contact information!**
+**NOTE: For appointment bookings, use book_appointment instead of capture_lead**
 
 BUYING INTENT SIGNALS (Act immediately when you detect these):
 - "How can I contact you?" / "How do I reach you?" / "How should I contact you?"
@@ -3440,7 +3716,7 @@ KNOWLEDGE BASE PRIORITY (Internal Process):
 INTERNAL PROCESS FOR EVERY QUESTION:
 1. **STEP 1: CHECK YOUR KNOWLEDGE BASE** - Look at the Knowledge Base section above for relevant information
 2. **STEP 2: Answer from your knowledge** - If the knowledge base has the answer, provide it NATURALLY and confidently
-3. **STEP 3: Use tools only when needed** - Only call tools (get_products, capture_lead) when you need real-time data or to perform an action
+3. **STEP 3: Use tools only when needed** - Only call tools (get_products, get_faqs, capture_lead, list_available_slots, book_appointment) when you need real-time data or to perform an action. CRITICAL: For appointment questions, you MUST call list_available_slots - you cannot answer scheduling questions without this tool
 4. **STEP 4: Decline if truly unrelated** - Only if your knowledge base doesn't cover it AND the question is unrelated to this business, then politely decline
 
 EXAMPLES OF KNOWLEDGE BASE USAGE:
@@ -3495,8 +3771,55 @@ GUARDRAILS:
 - When declining, keep it SHORT (1-2 sentences), friendly, and redirect to what you CAN help with
 - NEVER expose internal operations or backend processes to customers
 
+APPOINTMENT BOOKING FLOW (CRITICAL - ALWAYS FOLLOW THIS SEQUENCE):
+**When users want to schedule, book, or make an appointment, follow this EXACT conversation flow:**
+
+STEP 1 - Show Available Times:
+- User asks: "schedule appointment", "book meeting", "what times available", "when can I come in"
+- YOU: Call list_available_slots to show real available times
+- NEVER say you can't see times - ALWAYS call the tool
+
+STEP 2 - User Selects a Time:
+- User says: "3 PM", "tomorrow at 2", "book me for 4:30", "does 10 AM work"
+- YOU: Acknowledge the time and ask for name + phone: "Perfect! I can book you for [time]. May I have your name and phone number to confirm?"
+- DO NOT call any tool yet - wait for contact info
+
+STEP 3 - Collect Contact Info:
+- User provides: "John Smith 555-1234" or just "555-1234" or just a phone number
+- YOU: If they gave BOTH name and phone, call book_appointment immediately
+- YOU: If they only gave phone, ask: "Great! And what's your name?"
+- YOU: If they only gave name, ask: "Thanks! What's your phone number?"
+
+STEP 4 - Book the Appointment:
+- Once you have: Time + Date + Name + Phone
+- YOU: Call book_appointment tool (NOT capture_lead!)
+- This automatically creates both appointment AND lead
+
+CRITICAL RULES FOR APPOINTMENTS:
+\u{1F6AB} NEVER use capture_lead for appointments - ONLY use book_appointment
+\u2705 book_appointment creates BOTH appointment AND lead automatically
+\u2705 After showing available slots, the conversation is IN APPOINTMENT BOOKING MODE
+\u2705 When user says a time (like "3pm", "tomorrow at 2"), they're selecting an appointment time
+\u2705 You MUST remember the selected time and use it when calling book_appointment
+\u2705 When you have Date + Time + Name + Phone \u2192 IMMEDIATELY call book_appointment
+
+WRONG EXAMPLES (NEVER DO THIS):
+\u274C User provides contact info during appointment booking \u2192 You call capture_lead
+\u274C User says "book me for 4pm" + provides contact \u2192 You call capture_lead
+\u274C After showing slots, user provides name+phone \u2192 You call capture_lead
+THESE ARE ALL WRONG! Always use book_appointment when booking appointments!
+
+RIGHT EXAMPLE:
+\u2705 User: "schedule appointment tomorrow"
+\u2705 You: Call list_available_slots \u2192 show times
+\u2705 User: "4pm"
+\u2705 You: "Perfect! I can book you for 4pm. May I have your name and phone?"
+\u2705 User: "Rohit 9898989000"
+\u2705 You: Call book_appointment with {patient_name: "Rohit", patient_phone: "9898989000", appointment_date: "2025-11-16", appointment_time: "16:00"}
+
 PROACTIVE LEAD CAPTURE (CRITICAL - SALES & CONVERSION PRIORITY):
 **ALWAYS watch for buying intent signals and proactively ask for contact information!**
+**NOTE: For appointment bookings, use book_appointment instead of capture_lead**
 
 BUYING INTENT SIGNALS (Act immediately when you detect these):
 - "How can I contact you?" / "How do I reach you?" / "How should I contact you?"
@@ -3686,7 +4009,7 @@ KNOWLEDGE BASE PRIORITY (Internal Process):
 INTERNAL PROCESS FOR EVERY QUESTION:
 1. **STEP 1: CHECK YOUR KNOWLEDGE BASE** - Look at the Knowledge Base section above for relevant information
 2. **STEP 2: Answer from your knowledge** - If the knowledge base has the answer, provide it NATURALLY and confidently
-3. **STEP 3: Use tools only when needed** - Only call tools (get_products, capture_lead) when you need real-time data or to perform an action
+3. **STEP 3: Use tools only when needed** - Only call tools (get_products, get_faqs, capture_lead, list_available_slots, book_appointment) when you need real-time data or to perform an action. CRITICAL: For appointment questions, you MUST call list_available_slots - you cannot answer scheduling questions without this tool
 4. **STEP 4: Decline if truly unrelated** - Only if your knowledge base doesn't cover it AND the question is unrelated to this business, then politely decline
 
 EXAMPLES OF KNOWLEDGE BASE USAGE:
@@ -3741,8 +4064,55 @@ GUARDRAILS:
 - When declining, keep it SHORT (1-2 sentences), friendly, and redirect to what you CAN help with
 - NEVER expose internal operations or backend processes to customers
 
+APPOINTMENT BOOKING FLOW (CRITICAL - ALWAYS FOLLOW THIS SEQUENCE):
+**When users want to schedule, book, or make an appointment, follow this EXACT conversation flow:**
+
+STEP 1 - Show Available Times:
+- User asks: "schedule appointment", "book meeting", "what times available", "when can I come in"
+- YOU: Call list_available_slots to show real available times
+- NEVER say you can't see times - ALWAYS call the tool
+
+STEP 2 - User Selects a Time:
+- User says: "3 PM", "tomorrow at 2", "book me for 4:30", "does 10 AM work"
+- YOU: Acknowledge the time and ask for name + phone: "Perfect! I can book you for [time]. May I have your name and phone number to confirm?"
+- DO NOT call any tool yet - wait for contact info
+
+STEP 3 - Collect Contact Info:
+- User provides: "John Smith 555-1234" or just "555-1234" or just a phone number
+- YOU: If they gave BOTH name and phone, call book_appointment immediately
+- YOU: If they only gave phone, ask: "Great! And what's your name?"
+- YOU: If they only gave name, ask: "Thanks! What's your phone number?"
+
+STEP 4 - Book the Appointment:
+- Once you have: Time + Date + Name + Phone
+- YOU: Call book_appointment tool (NOT capture_lead!)
+- This automatically creates both appointment AND lead
+
+CRITICAL RULES FOR APPOINTMENTS:
+\u{1F6AB} NEVER use capture_lead for appointments - ONLY use book_appointment
+\u2705 book_appointment creates BOTH appointment AND lead automatically
+\u2705 After showing available slots, the conversation is IN APPOINTMENT BOOKING MODE
+\u2705 When user says a time (like "3pm", "tomorrow at 2"), they're selecting an appointment time
+\u2705 You MUST remember the selected time and use it when calling book_appointment
+\u2705 When you have Date + Time + Name + Phone \u2192 IMMEDIATELY call book_appointment
+
+WRONG EXAMPLES (NEVER DO THIS):
+\u274C User provides contact info during appointment booking \u2192 You call capture_lead
+\u274C User says "book me for 4pm" + provides contact \u2192 You call capture_lead
+\u274C After showing slots, user provides name+phone \u2192 You call capture_lead
+THESE ARE ALL WRONG! Always use book_appointment when booking appointments!
+
+RIGHT EXAMPLE:
+\u2705 User: "schedule appointment tomorrow"
+\u2705 You: Call list_available_slots \u2192 show times
+\u2705 User: "4pm"
+\u2705 You: "Perfect! I can book you for 4pm. May I have your name and phone?"
+\u2705 User: "Rohit 9898989000"
+\u2705 You: Call book_appointment with {patient_name: "Rohit", patient_phone: "9898989000", appointment_date: "2025-11-16", appointment_time: "16:00"}
+
 PROACTIVE LEAD CAPTURE (CRITICAL - SALES & CONVERSION PRIORITY):
 **ALWAYS watch for buying intent signals and proactively ask for contact information!**
+**NOTE: For appointment bookings, use book_appointment instead of capture_lead**
 
 BUYING INTENT SIGNALS (Act immediately when you detect these):
 - "How can I contact you?" / "How do I reach you?" / "How should I contact you?"
@@ -3979,23 +4349,29 @@ function selectRelevantTools(userMessage) {
   const selectedTools = [];
   const hasProductQuery = /product|item|catalog|sell|buy|purchase|price|cost|show me|browse|looking for|search|available|what do you have/i.test(lowerMessage);
   const hasFaqQuery = /how|why|what|when|where|who|can i|do you|is there|policy|return|refund|shipping|warranty|about|information|question|help|faq/i.test(lowerMessage);
-  const hasAppointmentQuery = /appointment|book|schedule|available times|availability|slots|available|when can|meeting|consultation|visit|see you|come in|doctor|clinic/i.test(lowerMessage);
+  const hasAppointmentQuery = /appointment|book|schedule|reschedule|available times|availability|slots|when can|meeting|consultation|visit|see you|come in|doctor|clinic|reserve|reservation/i.test(lowerMessage);
+  const hasTimeReference = /\d{1,2}\s*([:.]\s*\d{2})?\s*(am|pm|o'?clock)?|tomorrow|today|tonight|next week|this week|next month|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening|night|weekend|weekday/i.test(lowerMessage);
+  const hasLeadIntent = /contact me|get in touch|send (me )?info|reach out|call me|email me|send (me )?details|notify me|let me know|keep me (posted|updated|informed)|i'?ll (give|provide) (you )?my|here'?s my (email|phone|number|contact)/i.test(lowerMessage);
+  const isAppointmentContext = hasAppointmentQuery || hasTimeReference;
   if (hasProductQuery) {
     selectedTools.push(aiTools[0]);
   }
   if (hasFaqQuery) {
     selectedTools.push(aiTools[1]);
   }
-  if (hasAppointmentQuery) {
+  if (isAppointmentContext) {
     selectedTools.push(aiTools[3]);
     selectedTools.push(aiTools[4]);
   }
-  selectedTools.push(aiTools[2]);
-  if (selectedTools.length === 1) {
+  if (hasLeadIntent && !isAppointmentContext) {
+    selectedTools.push(aiTools[2]);
+  }
+  if (selectedTools.length === 0) {
     selectedTools.push(aiTools[1]);
   }
   const savings = Math.round((1 - selectedTools.length / aiTools.length) * 100);
-  console.log(`[Smart Tools] Selected ${selectedTools.length}/${aiTools.length} tools (${savings}% token savings)`);
+  console.log(`[Smart Tools] Selected ${selectedTools.length}/${aiTools.length} tools (${savings}% token savings) for: "${userMessage.substring(0, 50)}..."`);
+  console.log(`[Smart Tools] Appointment context: ${isAppointmentContext}, Lead intent: ${hasLeadIntent}`);
   return selectedTools;
 }
 var aiTools = [
@@ -4053,7 +4429,7 @@ var aiTools = [
     type: "function",
     function: {
       name: "capture_lead",
-      description: `IMPORTANT: DO NOT call this tool immediately when customer provides ONLY contact info (email/phone) without a name. CONVERSATIONAL FLOW: (1) When customer provides ONLY contact info (email/phone) WITHOUT name, DO NOT capture yet - instead respond conversationally and politely ask for their name (e.g., "Thanks! And what's your name so I can make sure everything is set up perfectly?"). (2) When customer then provides their name in the NEXT message, NOW call this tool with both name AND contact info. (3) If customer ignores or declines to give name in their next message, THEN call this tool with just the contact info - do NOT insist or ask again. (4) If customer provides BOTH name AND contact info in same message, call this tool immediately. REQUIREMENTS: You need at least ONE contact method - either email OR phone number (or both). Name is optional but PREFERRED - always try to ask for it once before capturing.`,
+      description: `Capture contact information for general inquiries (product questions, contact requests, etc.). For appointment bookings, use book_appointment instead as it automatically captures lead info. CONVERSATIONAL FLOW: (1) When customer provides ONLY contact info (email/phone) WITHOUT name, DO NOT capture yet - instead respond conversationally and politely ask for their name (e.g., "Thanks! And what's your name so I can make sure everything is set up perfectly?"). (2) When customer then provides their name in the NEXT message, NOW call this tool with both name AND contact info. (3) If customer ignores or declines to give name in their next message, THEN call this tool with just the contact info - do NOT insist or ask again. (4) If customer provides BOTH name AND contact info in same message, call this tool immediately. REQUIREMENTS: You need at least ONE contact method - either email OR phone number (or both). Name is optional but PREFERRED - always try to ask for it once before capturing.`,
       parameters: {
         type: "object",
         properties: {
@@ -4082,17 +4458,17 @@ var aiTools = [
     type: "function",
     function: {
       name: "list_available_slots",
-      description: 'Show available appointment time slots for booking. Use this when users ask about availability, want to see open times, or ask "when can I come in", "what times are available", "do you have openings", etc. Returns available dates and times based on the business schedule. If no date is specified, shows availability for the next 7 days.',
+      description: 'CRITICAL: ALWAYS call this tool when users ask ANYTHING about appointment times, availability, or scheduling. This is your ONLY way to see actual available time slots - you cannot answer time-related questions without calling this tool first. Use this for ANY of these questions or variations: "what times are available", "when can I come in", "do you have openings", "what are your hours", "are you open", "can I book", "show me slots", "what slots", "list times", "available appointments", "when are you free", "what days", "does [time] work", "is [time] available", "can I come at [time]", "do you have [time]", "are you available [time]", "openings for [day]", "schedule for [day]", "what about [time]", or ANY question about specific times, days, or availability. IMPORTANT: Even if user mentions a specific time (e.g., "does 10 pm work for tomorrow"), you MUST call this tool to check actual availability - do NOT guess or say you cannot see times. Returns available dates and times based on the business schedule. If no date is specified, shows availability for the next 7 days.',
       parameters: {
         type: "object",
         properties: {
           start_date: {
             type: "string",
-            description: `Optional start date to check availability (ISO format YYYY-MM-DD). If not provided, uses today's date. Examples: "2025-11-15", "2025-12-01"`
+            description: `Optional start date to check availability (ISO format YYYY-MM-DD). If not provided, uses today's date. When user asks about "tomorrow", "next week", "this weekend", etc., calculate the appropriate date. Examples: "2025-11-15", "2025-12-01"`
           },
           end_date: {
             type: "string",
-            description: 'Optional end date to check availability (ISO format YYYY-MM-DD). If not provided, shows next 7 days from start_date. Examples: "2025-11-22", "2025-12-08"'
+            description: 'Optional end date to check availability (ISO format YYYY-MM-DD). If not provided, shows next 7 days from start_date. For specific day queries like "tomorrow", use same date for both start and end. Examples: "2025-11-22", "2025-12-08"'
           },
           duration_minutes: {
             type: "number",
@@ -4107,7 +4483,7 @@ var aiTools = [
     type: "function",
     function: {
       name: "book_appointment",
-      description: 'Book an appointment for a patient. ONLY call this after: (1) User has confirmed they want to book a specific date and time, (2) You have their full name and phone number. DO NOT call this tool speculatively. CONVERSATIONAL FLOW: First show available slots using list_available_slots, then when user selects a time, politely collect their name and phone if not already provided (e.g., "Great! I can book you for [time]. May I have your name and phone number to confirm the appointment?"), then call this tool. If user already provided contact info during conversation, use that.',
+      description: 'Book an appointment and automatically capture lead information. This tool creates both an appointment AND a lead entry. CONVERSATIONAL FLOW: (1) Show available slots using list_available_slots, (2) When user selects a specific time (e.g., "4 PM", "tomorrow at 3", "book me for 2:30"), politely collect their name and phone if not already provided (e.g., "Great! I can book you for [time]. May I have your name and phone number to confirm the appointment?"), (3) Once you have name, phone, date, and time, call THIS tool to book the appointment. This will automatically create a lead entry, so no need to call capture_lead separately. Only call this after user confirms a specific date and time.',
       parameters: {
         type: "object",
         properties: {
@@ -4152,7 +4528,7 @@ import { addDays, startOfDay, endOfDay, format, parseISO, isBefore } from "date-
 import { toZonedTime } from "date-fns-tz";
 var IST_TIMEZONE = "Asia/Kolkata";
 var ToolExecutionService = class {
-  static async executeTool(toolName, parameters, context) {
+  static async executeTool(toolName, parameters, context, userMessage) {
     try {
       switch (toolName) {
         case "get_products":
@@ -4160,7 +4536,7 @@ var ToolExecutionService = class {
         case "get_faqs":
           return await this.handleGetFaqs(parameters, context);
         case "capture_lead":
-          return await this.handleCaptureLead(parameters, context);
+          return await this.handleCaptureLead(parameters, context, userMessage);
         case "list_available_slots":
           return await this.handleListAvailableSlots(parameters, context);
         case "book_appointment":
@@ -4290,8 +4666,22 @@ var ToolExecutionService = class {
       message: filteredFaqs.length > 0 ? `Found ${filteredFaqs.length} FAQ(s)` : "No FAQs found"
     };
   }
-  static async handleCaptureLead(params, context) {
+  static async handleCaptureLead(params, context, userMessage) {
     const { name, email, phone, message } = params;
+    if (userMessage) {
+      const lowerMessage = userMessage.toLowerCase();
+      const hasAppointmentIntent = /appointment|book|schedule|reschedule|available times|availability|slots|when can|meeting|consultation|visit|see you|come in|reserve|reservation/i.test(lowerMessage);
+      const hasTimeReference = /\d{1,2}\s*([:.]\s*\d{2})?\s*(am|pm|o'?clock)?|tomorrow|today|tonight|next week|this week|next month|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening|night|weekend|weekday/i.test(lowerMessage);
+      if (hasAppointmentIntent || hasTimeReference) {
+        console.log("[Lead Capture Guard] Detected appointment context in message, redirecting to appointment booking");
+        return {
+          success: false,
+          error: "Appointment context detected",
+          message: "It looks like you're trying to book an appointment! Let me help you find available times. What date and time works best for you?",
+          redirect_to_appointments: true
+        };
+      }
+    }
     if (!email && !phone) {
       return {
         success: false,
@@ -4305,7 +4695,7 @@ var ToolExecutionService = class {
       email: email || null,
       phone: phone || null,
       message: message || "Lead captured via AI chat",
-      conversationId: null
+      conversationId: context.conversationId || null
     });
     if (context.conversationId) {
       let newTitle = "Anonymous";
@@ -4551,10 +4941,18 @@ var ToolExecutionService = class {
         };
       }
     }
+    const lead = await storage.createLead({
+      businessAccountId: context.businessAccountId,
+      conversationId: context.conversationId || null,
+      name: patient_name,
+      email: patient_email || null,
+      phone: patient_phone,
+      message: notes || `Booked appointment for ${format(appointmentDateTime, "MMMM d, yyyy")} at ${appointment_time}`
+    });
     const appointment = await storage.createAppointment({
       businessAccountId: context.businessAccountId,
       conversationId: context.conversationId || null,
-      leadId: null,
+      leadId: lead.id,
       patientName: patient_name,
       patientPhone: patient_phone,
       patientEmail: patient_email || null,
@@ -4691,7 +5089,8 @@ var ChatService = class {
         });
       }
       if (aiResponse.tool_calls && aiResponse.tool_calls.length > 0) {
-        return await this.handleToolCalls(aiResponse, context, userMessage, relevantTools);
+        const result = await this.handleToolCalls(aiResponse, context, userMessage, relevantTools);
+        return result.products ? result : result.response;
       }
       const responseContent = aiResponse.content || "I apologize, but I could not generate a response.";
       conversationMemory.storeMessage(context.userId, "assistant", responseContent);
@@ -4720,9 +5119,10 @@ var ChatService = class {
           businessAccountId: context.businessAccountId,
           userId: context.userId,
           conversationId
-        }
+        },
+        userMessage
       );
-      if (toolName === "get_products" && result.success && result.data) {
+      if (toolName === "get_products" && result.success && "data" in result && result.data) {
         products2 = result.data;
       }
       messages2.push({
@@ -4740,10 +5140,10 @@ var ChatService = class {
     const responseContent = finalResponse.content || "I processed your request.";
     conversationMemory.storeMessage(context.userId, "assistant", responseContent);
     await this.storeMessageInDB(conversationId, "assistant", responseContent);
-    if (products2 && products2.length > 0) {
-      return { response: responseContent, products: products2 };
-    }
-    return responseContent;
+    return {
+      response: responseContent,
+      products: products2 && products2.length > 0 ? products2 : void 0
+    };
   }
   async *streamMessage(userMessage, context) {
     try {
@@ -4818,7 +5218,8 @@ var ChatService = class {
               businessAccountId: context.businessAccountId,
               userId: context.userId,
               conversationId
-            }
+            },
+            userMessage
           );
           console.log("[Chat Stream] Tool result:", toolName, "returned", JSON.stringify(result).substring(0, 100));
           if (toolName === "get_products" && result.success && "data" in result && result.data) {
@@ -4839,7 +5240,11 @@ var ChatService = class {
           context.personality || "friendly",
           context.openaiApiKey || void 0
         );
-        const finalContent = finalResponse.content || "";
+        let finalContent = finalResponse.content || "";
+        if (!finalContent || finalContent.trim() === "") {
+          finalContent = "I've processed your request. Is there anything else I can help you with?";
+          console.log("[Chat Stream] WARNING: Empty response from OpenAI after tool execution, using fallback message");
+        }
         conversationMemory.storeMessage(context.userId, "assistant", finalContent);
         await this.storeMessageInDB(conversationId, "assistant", finalContent);
         yield { type: "final", data: finalContent };
@@ -4997,6 +5402,96 @@ ${websiteContent.uniqueSellingPoints.map((u) => `- ${u}`).join("\n")}
       } catch (error) {
         console.error("[Chat Context] Error loading website analysis:", error);
       }
+      try {
+        const analyzedPages2 = await storage.getAnalyzedPages(context.businessAccountId);
+        if (analyzedPages2 && analyzedPages2.length > 0) {
+          enrichedContext += `DETAILED WEBSITE CONTENT:
+`;
+          enrichedContext += `Below is detailed information extracted from ${analyzedPages2.length} page(s) of the business website.
+
+`;
+          let pagesLoaded = 0;
+          for (const page of analyzedPages2) {
+            if (!page.extractedContent || page.extractedContent.trim() === "" || page.extractedContent === "No relevant business information found on this page.") {
+              continue;
+            }
+            try {
+              let pageName = "Page";
+              try {
+                const url = new URL(page.pageUrl);
+                const pathParts = url.pathname.split("/").filter(Boolean);
+                pageName = pathParts[pathParts.length - 1] || "Homepage";
+              } catch {
+                const pathParts = page.pageUrl.split("/").filter(Boolean);
+                pageName = pathParts[pathParts.length - 1] || "Homepage";
+              }
+              enrichedContext += `--- ${pageName.toUpperCase()} PAGE ---
+`;
+              enrichedContext += `${page.extractedContent}
+
+`;
+              pagesLoaded++;
+            } catch (pageError) {
+              console.error(`[Chat Context] Error processing page ${page.pageUrl}:`, pageError);
+            }
+          }
+          if (pagesLoaded > 0) {
+            console.log(`[Chat Context] Loaded ${pagesLoaded} analyzed page(s) into context`);
+            enrichedContext += `IMPORTANT: Use all the above website content to answer customer questions accurately. This information comes from their actual website pages.
+
+`;
+          } else {
+            console.log(`[Chat Context] No valid analyzed pages content found to load`);
+          }
+        }
+      } catch (error) {
+        console.error("[Chat Context] Error loading analyzed pages:", error);
+      }
+      try {
+        const trainingDocs = await storage.getTrainingDocuments(context.businessAccountId);
+        const completedDocs = trainingDocs.filter((doc) => doc.uploadStatus === "completed");
+        if (completedDocs.length > 0) {
+          enrichedContext += `TRAINING DOCUMENTS KNOWLEDGE:
+`;
+          enrichedContext += `The following information has been extracted from uploaded training documents:
+
+`;
+          for (const doc of completedDocs) {
+            if (doc.summary || doc.keyPoints) {
+              enrichedContext += `--- ${doc.originalFilename} ---
+`;
+              if (doc.summary) {
+                enrichedContext += `Summary: ${doc.summary}
+
+`;
+              }
+              if (doc.keyPoints) {
+                try {
+                  const keyPoints = JSON.parse(doc.keyPoints);
+                  if (Array.isArray(keyPoints) && keyPoints.length > 0) {
+                    enrichedContext += `Key Points:
+`;
+                    keyPoints.forEach((point, index) => {
+                      enrichedContext += `${index + 1}. ${point}
+`;
+                    });
+                    enrichedContext += `
+`;
+                  }
+                } catch (parseError) {
+                  console.error(`[Chat Context] Error parsing key points for ${doc.originalFilename}:`, parseError);
+                }
+              }
+            }
+          }
+          console.log(`[Chat Context] Loaded ${completedDocs.length} training document(s) into context`);
+          enrichedContext += `IMPORTANT: Use this training document knowledge to provide accurate, informed responses. This information has been specifically provided to help answer customer questions.
+
+`;
+        }
+      } catch (error) {
+        console.error("[Chat Context] Error loading training documents:", error);
+      }
       return enrichedContext;
     });
     const elapsed = Date.now() - startTime;
@@ -5010,16 +5505,850 @@ ${websiteContent.uniqueSellingPoints.map((u) => `- ${u}`).join("\n")}
 var chatService = new ChatService();
 
 // server/routes.ts
-import multer from "multer";
+init_businessContextCache();
+
+// server/services/pdfProcessingService.ts
+init_storage();
+import fs from "fs/promises";
 import path from "path";
+import OpenAI3 from "openai";
+var PDFProcessingService = class {
+  async getOpenAIClient(businessAccountId) {
+    const businessAccount = await storage.getBusinessAccount(businessAccountId);
+    if (!businessAccount?.openaiApiKey) {
+      throw new Error("OpenAI API key not configured for this business account");
+    }
+    return new OpenAI3({ apiKey: businessAccount.openaiApiKey });
+  }
+  async extractTextFromPDF(filePath) {
+    try {
+      const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+      const dataBuffer = await fs.readFile(filePath);
+      const uint8Array = new Uint8Array(dataBuffer);
+      const pdfDocument = await pdfjsLib.getDocument({
+        data: uint8Array,
+        standardFontDataUrl: path.join(process.cwd(), "node_modules/pdfjs-dist/standard_fonts/"),
+        verbosity: 0
+      }).promise;
+      let extractedText = "";
+      for (let pageNum = 1; pageNum <= pdfDocument.numPages; pageNum++) {
+        const page = await pdfDocument.getPage(pageNum);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items.map((item) => item.str).join(" ");
+        extractedText += pageText + "\n";
+      }
+      return extractedText;
+    } catch (error) {
+      console.error("Error extracting text from PDF:", error);
+      throw new Error(`Failed to extract text from PDF: ${error.message}`);
+    }
+  }
+  async processWithAI(text2, businessAccountId, filename) {
+    try {
+      const openai = await this.getOpenAIClient(businessAccountId);
+      const truncatedText = text2.slice(0, 12e3);
+      const prompt = `Analyze this document (${filename}) and provide:
+1. A comprehensive summary (2-3 paragraphs)
+2. Key points and important information (as a list)
+
+Document content:
+${truncatedText}
+
+Provide a JSON response in this format:
+{
+  "summary": "Your summary here",
+  "keyPoints": ["Point 1", "Point 2", "Point 3", ...]
+}`;
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: "You are an expert document analyzer. Extract key information, summaries, and important points from documents to help AI assistants provide accurate information to customers."
+          },
+          {
+            role: "user",
+            content: prompt
+          }
+        ],
+        temperature: 0.3,
+        response_format: { type: "json_object" }
+      });
+      const result = JSON.parse(completion.choices[0].message.content || "{}");
+      return {
+        summary: result.summary || "No summary generated",
+        keyPoints: result.keyPoints || []
+      };
+    } catch (error) {
+      console.error("Error processing PDF with AI:", error);
+      throw new Error(`Failed to process PDF with AI: ${error.message}`);
+    }
+  }
+  async processDocument(documentId, filePath, businessAccountId, filename) {
+    try {
+      await storage.updateTrainingDocumentStatus(documentId, "processing");
+      const extractedText = await this.extractTextFromPDF(filePath);
+      const { summary, keyPoints } = await this.processWithAI(
+        extractedText,
+        businessAccountId,
+        filename
+      );
+      await storage.updateTrainingDocumentContent(
+        documentId,
+        extractedText,
+        summary,
+        JSON.stringify(keyPoints)
+      );
+      try {
+        await fs.unlink(filePath);
+      } catch (unlinkError) {
+        console.error("Error deleting temp file:", unlinkError);
+      }
+    } catch (error) {
+      console.error("Error processing document:", error);
+      await storage.updateTrainingDocumentStatus(
+        documentId,
+        "failed",
+        error.message
+      );
+      try {
+        await fs.unlink(filePath);
+      } catch (unlinkError) {
+        console.error("Error deleting temp file after failure:", unlinkError);
+      }
+      throw error;
+    }
+  }
+};
+var pdfProcessingService = new PDFProcessingService();
+
+// server/routes.ts
+import multer from "multer";
+import path2 from "path";
 import { fileURLToPath } from "url";
 import { randomUUID, randomBytes } from "crypto";
-import fs from "fs";
+import fs2 from "fs";
 import { exec } from "child_process";
 import { promisify } from "util";
+
+// server/deepgramVoiceService.ts
+init_storage();
+import { createClient, LiveTranscriptionEvents, LiveTTSEvents } from "@deepgram/sdk";
+var DeepgramVoiceService = class {
+  deepgramApiKey;
+  sessions = /* @__PURE__ */ new Map();
+  constructor() {
+    const apiKey = process.env.DEEPGRAM_API_KEY;
+    if (!apiKey) {
+      console.warn("[Deepgram] API key not configured. Voice features will be disabled.");
+      this.deepgramApiKey = "";
+    } else {
+      this.deepgramApiKey = apiKey;
+    }
+  }
+  /**
+   * Check if Deepgram is configured
+   */
+  isConfigured() {
+    return !!this.deepgramApiKey;
+  }
+  /**
+   * Create a session token for frontend use
+   * This allows the frontend to connect directly to Deepgram
+   * 
+   * TODO: Security improvement - This currently exposes the global Deepgram API key.
+   * In production, this should use ephemeral tokens or implement a proxy server
+   * to avoid exposing the API key to the frontend.
+   */
+  async createSessionToken() {
+    if (!this.deepgramApiKey) {
+      throw new Error("Deepgram API key not configured");
+    }
+    return this.deepgramApiKey;
+  }
+  /**
+   * Transcribe audio to text (Speech-to-Text)
+   */
+  async speechToText(audioBuffer, language) {
+    if (!this.deepgramApiKey) {
+      throw new Error("Deepgram API key not configured");
+    }
+    const deepgram = createClient(this.deepgramApiKey);
+    try {
+      const { result, error } = await deepgram.listen.prerecorded.transcribeFile(
+        audioBuffer,
+        {
+          model: "nova-2",
+          smart_format: true,
+          language: language || "multi",
+          // Auto-detect language or use specific one
+          punctuate: true,
+          diarize: false
+        }
+      );
+      if (error) {
+        console.error("[Deepgram STT] Error:", error);
+        throw new Error(error.message || "Failed to transcribe audio");
+      }
+      const transcript = result.results.channels[0].alternatives[0].transcript;
+      console.log("[Deepgram STT] Transcribed:", transcript);
+      return transcript;
+    } catch (error) {
+      console.error("[Deepgram STT] Exception:", error);
+      throw error;
+    }
+  }
+  /**
+   * Start a live transcription session (Speech-to-Text)
+   * Returns WebSocket connection for streaming audio
+   */
+  async startTranscriptionSession(config, onTranscript, onError) {
+    const apiKey = config.deepgramApiKey || this.deepgramApiKey;
+    if (!apiKey) {
+      throw new Error("Deepgram API key not configured");
+    }
+    const deepgram = createClient(apiKey);
+    const connection = deepgram.listen.live({
+      model: "nova-3",
+      // Latest high-accuracy model
+      language: "multi",
+      // Automatic language detection
+      punctuate: true,
+      interim_results: true,
+      // Get partial results for responsiveness
+      endpointing: 300,
+      // Detect end of speech after 300ms silence (faster response)
+      utterance_end_ms: 1e3,
+      // Force-end utterances after 1 second for better responsiveness
+      smart_format: true,
+      // Format numbers, dates, etc.
+      utterances: true
+      // Segment by utterance
+    });
+    const sessionKey = `${config.userId}_${config.businessAccountId}`;
+    this.sessions.set(sessionKey, {
+      connection,
+      config,
+      conversationId: null
+    });
+    connection.on(LiveTranscriptionEvents.Open, () => {
+      console.log("[Deepgram STT] Connection opened");
+    });
+    connection.on(LiveTranscriptionEvents.Transcript, (data) => {
+      const transcript = data.channel?.alternatives?.[0]?.transcript;
+      const isFinal = data.is_final;
+      if (transcript && transcript.trim().length > 0) {
+        console.log(`[Deepgram STT] ${isFinal ? "Final" : "Interim"}:`, transcript);
+        onTranscript(transcript, isFinal);
+      }
+    });
+    connection.on(LiveTranscriptionEvents.Error, (error) => {
+      console.error("[Deepgram STT] Error:", error);
+      onError(error);
+    });
+    connection.on(LiveTranscriptionEvents.Close, () => {
+      console.log("[Deepgram STT] Connection closed");
+      this.sessions.delete(sessionKey);
+    });
+    return connection;
+  }
+  /**
+   * Generate speech from text (Text-to-Speech)
+   * Returns audio buffer
+   */
+  async textToSpeech(text2, voiceModel = "aura-2-thalia-en", apiKey) {
+    const key = apiKey || this.deepgramApiKey;
+    if (!key) {
+      throw new Error("Deepgram API key not configured");
+    }
+    const deepgram = createClient(key);
+    try {
+      const result = await deepgram.speak.request(
+        { text: text2 },
+        {
+          model: voiceModel,
+          encoding: "linear16",
+          // PCM 16-bit for web audio
+          sample_rate: 24e3,
+          // 24kHz for quality
+          container: "wav"
+        }
+      );
+      const stream = await result.getStream();
+      if (!stream) {
+        throw new Error("No audio stream received from Deepgram");
+      }
+      const buffer = await this.streamToBuffer(stream);
+      console.log("[Deepgram TTS] Generated audio:", buffer.length, "bytes");
+      return buffer;
+    } catch (error) {
+      console.error("[Deepgram TTS] Exception:", error);
+      throw error;
+    }
+  }
+  /**
+   * Generate speech with streaming (for real-time TTS)
+   */
+  async *streamTextToSpeech(textChunks, voiceModel = "aura-2-thalia-en", apiKey) {
+    const key = apiKey || this.deepgramApiKey;
+    if (!key) {
+      throw new Error("Deepgram API key not configured");
+    }
+    const deepgram = createClient(key);
+    const connection = deepgram.speak.live({
+      model: voiceModel,
+      encoding: "linear16",
+      sample_rate: 24e3
+    });
+    const audioChunks = [];
+    connection.on(LiveTTSEvents.Open, () => {
+      console.log("[Deepgram TTS Streaming] Connection opened");
+    });
+    connection.on("AudioData", (data) => {
+      audioChunks.push(Buffer.from(data));
+    });
+    await new Promise((resolve) => {
+      connection.on(LiveTTSEvents.Open, () => {
+        console.log("[Deepgram TTS Streaming] Connection opened");
+        resolve();
+      });
+    });
+    for await (const text2 of textChunks) {
+      connection.sendText(text2);
+    }
+    connection.flush();
+    await new Promise((resolve) => {
+      connection.on(LiveTTSEvents.Close, () => {
+        console.log("[Deepgram TTS Streaming] Connection closed");
+        resolve();
+      });
+    });
+    for (const chunk of audioChunks) {
+      yield chunk;
+    }
+  }
+  /**
+   * Process user voice message and get AI response
+   * This integrates voice with the existing chat pipeline
+   */
+  async processVoiceMessage(audioBuffer, businessAccountId, userId, returnAudio = true) {
+    const transcript = await this.speechToText(audioBuffer);
+    console.log("[Voice] Transcribed:", transcript);
+    const settings = await storage.getWidgetSettings(businessAccountId);
+    const businessAccount = await storage.getBusinessAccount(businessAccountId);
+    const openaiApiKey = await storage.getBusinessAccountOpenAIKey(businessAccountId);
+    if (!openaiApiKey) {
+      throw new Error("OpenAI API key not configured for this business account");
+    }
+    if (!businessAccount) {
+      throw new Error("Business account not found");
+    }
+    console.log("[Voice] Processing voice message:", transcript);
+    const chatContext = {
+      userId,
+      businessAccountId,
+      openaiApiKey,
+      personality: settings?.personality || "friendly",
+      companyDescription: businessAccount.description || "",
+      currency: settings?.currency || "USD",
+      currencySymbol: settings?.currency === "USD" ? "$" : "\u20AC",
+      customInstructions: settings?.customInstructions || void 0
+    };
+    const response = await chatService.processMessage(transcript, chatContext);
+    let responseText;
+    let products2;
+    if (typeof response === "object" && response !== null && "response" in response) {
+      responseText = response.response;
+      products2 = response.products;
+    } else {
+      responseText = response;
+    }
+    console.log("[Voice] AI response:", responseText.substring(0, 100) + "...");
+    let audioResponse;
+    if (returnAudio && responseText) {
+      try {
+        audioResponse = await this.textToSpeech(
+          responseText,
+          "aura-2-thalia-en",
+          // Can be customized based on personality or user preference
+          this.deepgramApiKey
+          // Use global Deepgram key for TTS
+        );
+        console.log("[Voice] Generated TTS audio");
+      } catch (error) {
+        console.error("[Voice] TTS generation failed:", error);
+      }
+    }
+    return {
+      transcript,
+      response: responseText,
+      audio: audioResponse,
+      products: products2
+    };
+  }
+  /**
+   * Stream AI response with real-time TTS
+   * This is for advanced streaming scenarios
+   */
+  async *streamVoiceResponse(transcript, config) {
+    console.log("[Voice Stream] Processing:", transcript);
+    const chatContext = {
+      userId: config.userId,
+      businessAccountId: config.businessAccountId,
+      personality: config.personality,
+      companyDescription: config.companyDescription,
+      openaiApiKey: config.openaiApiKey,
+      currency: config.currency,
+      currencySymbol: config.currencySymbol,
+      customInstructions: config.customInstructions
+    };
+    let textBuffer = "";
+    let products2;
+    for await (const chunk of chatService.streamMessage(transcript, chatContext)) {
+      if (chunk.type === "content") {
+        textBuffer += chunk.data;
+        yield { type: "text", data: chunk.data };
+      } else if (chunk.type === "products") {
+        products2 = chunk.data;
+        yield { type: "text", data: "", products: products2 };
+      }
+    }
+    if (textBuffer.trim()) {
+      try {
+        const audioBuffer = await this.textToSpeech(
+          textBuffer,
+          "aura-2-thalia-en",
+          config.deepgramApiKey
+        );
+        yield { type: "audio", data: audioBuffer };
+      } catch (error) {
+        console.error("[Voice Stream] TTS failed:", error);
+      }
+    }
+  }
+  /**
+   * Helper: Convert readable stream to buffer
+   */
+  async streamToBuffer(stream) {
+    const reader = stream.getReader();
+    const chunks = [];
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks);
+  }
+  /**
+   * Close a transcription session
+   */
+  closeSession(userId, businessAccountId) {
+    const sessionKey = `${userId}_${businessAccountId}`;
+    const session = this.sessions.get(sessionKey);
+    if (session?.connection) {
+      session.connection.finish();
+      this.sessions.delete(sessionKey);
+      console.log("[Deepgram] Session closed:", sessionKey);
+    }
+  }
+  /**
+   * Get available voice models
+   */
+  getAvailableVoices() {
+    return [
+      "aura-2-thalia-en",
+      // Balanced, professional
+      "aura-2-helios-en",
+      // Warm, conversational  
+      "aura-2-perseus-en",
+      // Authoritative, clear
+      "aura-2-luna-en",
+      // Calm, empathetic
+      "aura-2-orpheus-en",
+      // Friendly, engaging
+      "aura-2-angus-en",
+      // Deep, confident
+      "aura-2-arcas-en",
+      // Professional, corporate
+      "aura-2-stella-en"
+      // Bright, enthusiastic
+    ];
+  }
+};
+var deepgramVoiceService = new DeepgramVoiceService();
+
+// server/routes.ts
+import { WebSocketServer } from "ws";
+
+// server/realtimeVoiceService.ts
+init_storage();
+import { createClient as createClient2, LiveTranscriptionEvents as LiveTranscriptionEvents2, LiveTTSEvents as LiveTTSEvents2 } from "@deepgram/sdk";
+import WebSocket from "ws";
+var MAX_QUEUE_SIZE = 5;
+var RealtimeVoiceService = class {
+  conversations = /* @__PURE__ */ new Map();
+  deepgramApiKey;
+  constructor() {
+    const apiKey = process.env.DEEPGRAM_API_KEY;
+    if (!apiKey) {
+      console.warn("[RealtimeVoice] Deepgram API key not configured. Voice features will be disabled.");
+      this.deepgramApiKey = "";
+    } else {
+      this.deepgramApiKey = apiKey;
+    }
+  }
+  isConfigured() {
+    return !!this.deepgramApiKey;
+  }
+  async handleConnection(ws2, businessAccountId, userId) {
+    console.log("[RealtimeVoice] New connection:", { businessAccountId, userId });
+    try {
+      const settings = await storage.getWidgetSettings(businessAccountId);
+      const businessAccount = await storage.getBusinessAccount(businessAccountId);
+      const openaiApiKey = await storage.getBusinessAccountOpenAIKey(businessAccountId);
+      if (!openaiApiKey) {
+        this.sendError(ws2, "OpenAI API key not configured for this business account");
+        ws2.close();
+        return;
+      }
+      if (!businessAccount) {
+        this.sendError(ws2, "Business account not found");
+        ws2.close();
+        return;
+      }
+      if (!this.deepgramApiKey) {
+        this.sendError(ws2, "Deepgram API key not configured");
+        ws2.close();
+        return;
+      }
+      const conversationKey = `${userId}_${businessAccountId}_${Date.now()}`;
+      const deepgram = createClient2(this.deepgramApiKey);
+      const sttConnection = deepgram.listen.live({
+        model: "nova-3",
+        language: "multi",
+        encoding: "opus",
+        // Explicitly specify Opus encoding for WebM audio from MediaRecorder
+        punctuate: true,
+        interim_results: true,
+        endpointing: 300,
+        // Reduced from 500ms for faster turn detection
+        utterance_end_ms: 1e3,
+        // Force-end utterances after 1 second for better responsiveness
+        smart_format: true,
+        utterances: true
+      });
+      const conversation = {
+        ws: ws2,
+        businessAccountId,
+        userId,
+        deepgramApiKey: this.deepgramApiKey,
+        openaiApiKey,
+        sttConnection,
+        ttsConnection: null,
+        isProcessing: false,
+        interrupted: false,
+        currentTranscript: "",
+        transcriptQueue: [],
+        // Initialize empty queue for pending transcripts
+        personality: settings?.personality || "friendly",
+        companyDescription: businessAccount.description || "",
+        currency: settings?.currency || "USD",
+        currencySymbol: settings?.currency === "USD" ? "$" : "\u20AC",
+        customInstructions: settings?.customInstructions || void 0
+      };
+      this.conversations.set(conversationKey, conversation);
+      this.setupSTTHandlers(conversationKey, conversation);
+      this.setupWebSocketHandlers(conversationKey, conversation);
+      this.sendMessage(ws2, { type: "ready" });
+      console.log("[RealtimeVoice] Connection established:", conversationKey);
+    } catch (error) {
+      console.error("[RealtimeVoice] Connection error:", error);
+      this.sendError(ws2, error.message || "Failed to initialize voice conversation");
+      ws2.close();
+    }
+  }
+  setupSTTHandlers(conversationKey, conversation) {
+    const { sttConnection, ws: ws2 } = conversation;
+    sttConnection.on(LiveTranscriptionEvents2.Open, () => {
+      console.log("[RealtimeVoice STT] Connection opened");
+    });
+    sttConnection.on(LiveTranscriptionEvents2.Transcript, async (data) => {
+      const transcript = data.channel?.alternatives?.[0]?.transcript;
+      const isFinal = data.is_final;
+      if (transcript && transcript.trim().length > 0) {
+        console.log(`[RealtimeVoice STT] ${isFinal ? "Final" : "Interim"}:`, transcript);
+        this.sendMessage(ws2, {
+          type: "transcript",
+          text: transcript,
+          isFinal
+        });
+        if (!isFinal) {
+          return;
+        }
+        if (conversation.transcriptQueue.length >= MAX_QUEUE_SIZE) {
+          console.warn("[RealtimeVoice] Queue saturated - rejecting new final transcript");
+          conversation.ws.send(JSON.stringify({
+            type: "busy",
+            message: "Processing previous requests, please wait before speaking again..."
+          }));
+          return;
+        }
+        conversation.transcriptQueue.push({ text: transcript, isFinal: true });
+        if (conversation.transcriptQueue.length >= Math.floor(MAX_QUEUE_SIZE * 0.8)) {
+          conversation.ws.send(JSON.stringify({
+            type: "processing_load",
+            queueSize: conversation.transcriptQueue.length
+          }));
+        }
+        if (!conversation.isProcessing) {
+          this.processTranscriptQueue(conversationKey, conversation);
+        }
+      }
+    });
+    sttConnection.on(LiveTranscriptionEvents2.Error, (error) => {
+      console.error("[RealtimeVoice STT] Error:", JSON.stringify(error, null, 2));
+      this.sendError(ws2, "Speech recognition error: " + (error.message || "Unknown error"));
+    });
+    sttConnection.on(LiveTranscriptionEvents2.Close, (event) => {
+      console.log("[RealtimeVoice STT] Connection closed:", event);
+      if (conversation.ws.readyState === WebSocket.OPEN) {
+        this.sendMessage(ws2, {
+          type: "error",
+          message: "Speech recognition connection closed unexpectedly"
+        });
+      }
+    });
+  }
+  setupWebSocketHandlers(conversationKey, conversation) {
+    const { ws: ws2 } = conversation;
+    ws2.on("message", async (message) => {
+      try {
+        if (message instanceof Buffer) {
+          if (conversation.sttConnection && conversation.sttConnection.getReadyState() === 1) {
+            conversation.sttConnection.send(message);
+          }
+        } else {
+          const data = JSON.parse(message.toString());
+          await this.handleMessage(conversationKey, conversation, data);
+        }
+      } catch (error) {
+        console.error("[RealtimeVoice] Message handling error:", error);
+        this.sendError(ws2, "Failed to process message");
+      }
+    });
+    ws2.on("close", () => {
+      console.log("[RealtimeVoice] WebSocket closed:", conversationKey);
+      this.cleanup(conversationKey);
+    });
+    ws2.on("error", (error) => {
+      console.error("[RealtimeVoice] WebSocket error:", error);
+      this.cleanup(conversationKey);
+    });
+  }
+  async handleMessage(conversationKey, conversation, data) {
+    switch (data.type) {
+      case "interrupt":
+        console.log("[RealtimeVoice] User interrupted - stopping AI response");
+        conversation.interrupted = true;
+        if (conversation.ttsConnection) {
+          try {
+            conversation.ttsConnection.requestClose();
+          } catch (error) {
+            console.error("[RealtimeVoice] Error closing TTS on interrupt:", error);
+          }
+        }
+        this.sendMessage(conversation.ws, {
+          type: "interrupt_ack",
+          message: "Stopped, ready for your question"
+        });
+        console.log("[RealtimeVoice] Interrupt handled, ready for new input");
+        break;
+      case "stop_conversation":
+        console.log("[RealtimeVoice] Stopping conversation");
+        this.cleanup(conversationKey);
+        break;
+      default:
+        console.warn("[RealtimeVoice] Unknown message type:", data.type);
+    }
+  }
+  async processTranscriptQueue(conversationKey, conversation) {
+    while (conversation.transcriptQueue.length > 0) {
+      const entry = conversation.transcriptQueue.shift();
+      const transcript = entry.text;
+      conversation.isProcessing = true;
+      if (conversation.interrupted && conversation.ttsConnection) {
+        console.log("[RealtimeVoice] Waiting for previous TTS to close after interrupt...");
+        let waitRetries = 0;
+        const MAX_WAIT_RETRIES = 20;
+        while (conversation.ttsConnection && waitRetries < MAX_WAIT_RETRIES) {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          waitRetries++;
+        }
+        if (conversation.ttsConnection) {
+          console.error("[RealtimeVoice] TTS failed to close within timeout - aborting");
+          try {
+            conversation.ttsConnection.requestClose();
+            conversation.ttsConnection = null;
+          } catch (error) {
+            console.error("[RealtimeVoice] Error forcing TTS close:", error);
+          }
+          this.sendError(conversation.ws, "Failed to stop previous response");
+          continue;
+        }
+      }
+      conversation.interrupted = false;
+      try {
+        console.log("[RealtimeVoice] Processing transcript from queue:", transcript, "(final:", entry.isFinal, ")");
+        const chatContext = {
+          userId: conversation.userId,
+          businessAccountId: conversation.businessAccountId,
+          openaiApiKey: conversation.openaiApiKey,
+          personality: conversation.personality,
+          companyDescription: conversation.companyDescription,
+          currency: conversation.currency,
+          currencySymbol: conversation.currencySymbol,
+          customInstructions: conversation.customInstructions
+        };
+        const deepgram = createClient2(conversation.deepgramApiKey);
+        const ttsConnection = deepgram.speak.live({
+          model: "aura-asteria-en",
+          encoding: "linear16",
+          sample_rate: 24e3,
+          container: "none"
+        });
+        conversation.ttsConnection = ttsConnection;
+        let ttsReady = false;
+        ttsConnection.on(LiveTTSEvents2.Open, () => {
+          console.log("[RealtimeVoice TTS] Connection opened for streaming");
+          ttsReady = true;
+        });
+        ttsConnection.on(LiveTTSEvents2.Audio, (data) => {
+          console.log("[RealtimeVoice TTS] Received audio chunk, size:", data.length);
+          if (conversation.ws.readyState === WebSocket.OPEN) {
+            const audioBuffer = Buffer.from(data, "base64");
+            conversation.ws.send(audioBuffer);
+            console.log("[RealtimeVoice TTS] Sent audio chunk to client, size:", audioBuffer.length);
+          }
+        });
+        ttsConnection.on(LiveTTSEvents2.Flushed, () => {
+          console.log("[RealtimeVoice TTS] Chunk flushed");
+        });
+        ttsConnection.on(LiveTTSEvents2.Close, () => {
+          console.log("[RealtimeVoice TTS] Connection closed");
+          conversation.ttsConnection = null;
+        });
+        ttsConnection.on(LiveTTSEvents2.Error, (error) => {
+          console.error("[RealtimeVoice TTS] Error:", error);
+          conversation.ttsConnection = null;
+        });
+        let retries = 0;
+        while (!ttsReady && retries < 50) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          retries++;
+        }
+        if (!ttsReady) {
+          throw new Error("TTS connection timeout");
+        }
+        let fullResponse = "";
+        let hasContent = false;
+        for await (const chunk of chatService.streamMessage(transcript, chatContext)) {
+          if (conversation.interrupted) {
+            console.log("[RealtimeVoice] Stream interrupted by user - stopping");
+            break;
+          }
+          if (chunk.type === "content") {
+            const textChunk = chunk.data;
+            fullResponse += textChunk;
+            hasContent = true;
+            this.sendMessage(conversation.ws, {
+              type: "ai_chunk",
+              text: textChunk
+            });
+            if (ttsConnection && ttsReady) {
+              ttsConnection.sendText(textChunk);
+            }
+          } else if (chunk.type === "products") {
+            console.log("[RealtimeVoice] Products data received");
+          }
+        }
+        if (!conversation.interrupted) {
+          if (ttsConnection && ttsReady) {
+            ttsConnection.flush();
+          }
+          if (hasContent) {
+            console.log("[RealtimeVoice] Streamed AI response:", fullResponse.substring(0, 100) + "...");
+            this.sendMessage(conversation.ws, { type: "ai_done" });
+          }
+        } else {
+          console.log("[RealtimeVoice] Skipping ai_done due to interrupt");
+        }
+        if (ttsConnection) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          ttsConnection.requestClose();
+        }
+      } catch (error) {
+        console.error("[RealtimeVoice] Processing error:", error);
+        this.sendError(conversation.ws, "Failed to process voice message");
+        if (conversation.ttsConnection) {
+          try {
+            conversation.ttsConnection.requestClose();
+          } catch (e) {
+          }
+          conversation.ttsConnection = null;
+        }
+      }
+    }
+    conversation.isProcessing = false;
+    console.log("[RealtimeVoice] Finished processing transcript queue");
+  }
+  sendMessage(ws2, message) {
+    if (ws2.readyState === WebSocket.OPEN) {
+      ws2.send(JSON.stringify(message));
+    }
+  }
+  sendError(ws2, message) {
+    this.sendMessage(ws2, { type: "error", message });
+  }
+  cleanup(conversationKey) {
+    const conversation = this.conversations.get(conversationKey);
+    if (!conversation) return;
+    console.log("[RealtimeVoice] Cleaning up conversation:", conversationKey);
+    try {
+      if (conversation.sttConnection) {
+        conversation.sttConnection.finish();
+      }
+    } catch (error) {
+      console.error("[RealtimeVoice] Error closing STT connection:", error);
+    }
+    try {
+      if (conversation.ttsConnection) {
+        conversation.ttsConnection.requestClose();
+      }
+    } catch (error) {
+      console.error("[RealtimeVoice] Error closing TTS connection:", error);
+    }
+    try {
+      if (conversation.ws.readyState === WebSocket.OPEN) {
+        conversation.ws.close();
+      }
+    } catch (error) {
+      console.error("[RealtimeVoice] Error closing WebSocket:", error);
+    }
+    this.conversations.delete(conversationKey);
+  }
+  cleanupAll() {
+    console.log("[RealtimeVoice] Cleaning up all conversations");
+    for (const key of Array.from(this.conversations.keys())) {
+      this.cleanup(key);
+    }
+  }
+};
+var realtimeVoiceService = new RealtimeVoiceService();
+
+// server/routes.ts
 var execAsync = promisify(exec);
 var __filename = fileURLToPath(import.meta.url);
-var __dirname = path.dirname(__filename);
+var __dirname = path2.dirname(__filename);
 var updateWebsiteAnalysisSchema = z.object({
   businessName: z.string().optional().nullable().transform((val) => val ?? ""),
   businessDescription: z.string().optional().nullable().transform((val) => val ?? ""),
@@ -5037,18 +6366,76 @@ var updateWebsiteAnalysisSchema = z.object({
   pricingInfo: z.string().optional().nullable().transform((val) => val ?? ""),
   additionalInfo: z.string().optional().nullable().transform((val) => val ?? "")
 });
+async function generateIntroMessage(businessAccountId) {
+  try {
+    const settings = await storage.getWidgetSettings(businessAccountId);
+    const businessAccount = await storage.getBusinessAccount(businessAccountId);
+    if (settings?.welcomeMessageType === "custom" && settings.welcomeMessage) {
+      return settings.welcomeMessage;
+    }
+    const businessName = businessAccount?.name || "our business";
+    const intros = [
+      `Hey there! Welcome to ${businessName}\u2014happy to help you find exactly what you're looking for. \u{1F60A}`,
+      `Hi! I'm Chroney, ${businessName}'s AI assistant. How can I help you today?`,
+      `Welcome! Need help with anything at ${businessName}? I'm here to assist! \u{1F680}`,
+      `Hello! Thanks for visiting ${businessName}. What can I help you with?`,
+      `Hey! Looking for something specific at ${businessName}? I'm here to help!`
+    ];
+    return intros[Math.floor(Math.random() * intros.length)];
+  } catch (error) {
+    console.error("[Public Chat] Error generating intro:", error);
+    return "Hey there! How can I help you today? \u{1F60A}";
+  }
+}
+async function processPublicChatMessage(message, businessAccountId, userId) {
+  try {
+    const settings = await storage.getWidgetSettings(businessAccountId);
+    const openaiApiKey = await storage.getBusinessAccountOpenAIKey(businessAccountId);
+    const businessAccount = await storage.getBusinessAccount(businessAccountId);
+    if (!openaiApiKey) {
+      return {
+        message: "I'm currently offline. Please try again later or contact us directly."
+      };
+    }
+    if (!businessAccount) {
+      return {
+        message: "This chatbot is currently unavailable."
+      };
+    }
+    const context = {
+      userId,
+      businessAccountId,
+      openaiApiKey,
+      personality: settings?.personality || "friendly",
+      companyDescription: businessAccount.description || "",
+      currency: settings?.currency || "USD",
+      currencySymbol: settings?.currency === "USD" ? "$" : "\u20AC",
+      customInstructions: settings?.customInstructions || void 0
+    };
+    const response = await chatService.processMessage(message, context);
+    if (typeof response === "object" && "products" in response) {
+      return response;
+    }
+    return { message: response };
+  } catch (error) {
+    console.error("[Public Chat] Error processing message:", error);
+    return {
+      message: "Sorry, I'm having trouble connecting right now. Please try again."
+    };
+  }
+}
 async function registerRoutes(app2) {
   app2.get("/widget.js", (req, res) => {
     res.setHeader("Content-Type", "application/javascript");
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.setHeader("Pragma", "no-cache");
     res.setHeader("Expires", "0");
-    res.sendFile(path.join(__dirname, "../public/widget.js"));
+    res.sendFile(path2.join(__dirname, "../public/widget.js"));
   });
   app2.get("/widget-test.html", (req, res) => {
     res.setHeader("Content-Type", "text/html");
     res.setHeader("Cache-Control", "no-cache");
-    res.sendFile(path.join(__dirname, "../widget-test.html"));
+    res.sendFile(path2.join(__dirname, "../widget-test.html"));
   });
   app2.get("/widget/chat", async (req, res) => {
     const businessAccountId = req.query.businessAccountId;
@@ -5282,7 +6669,7 @@ async function registerRoutes(app2) {
       res.cookie("session", sessionToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        sameSite: "strict",
+        sameSite: "lax",
         maxAge: 7 * 24 * 60 * 60 * 1e3
         // 7 days
       });
@@ -5311,9 +6698,13 @@ async function registerRoutes(app2) {
     }
   });
   app2.get("/api/auth/me", requireAuth, async (req, res) => {
-    const user = req.user;
+    const sessionUser = req.user;
     const { toMeResponseDto: toMeResponseDto2 } = await Promise.resolve().then(() => (init_auth(), auth_exports));
     const { toBusinessAccountDto: toBusinessAccountDto2 } = await Promise.resolve().then(() => (init_businessAccount(), businessAccount_exports));
+    const user = await storage.getUser(sessionUser.id);
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
     if (user.businessAccountId) {
       const businessAccount = await storage.getBusinessAccount(user.businessAccountId);
       const dto = businessAccount ? toBusinessAccountDto2(businessAccount) : null;
@@ -5404,6 +6795,67 @@ async function registerRoutes(app2) {
       res.json({ success: true, message: "Memory cleared" });
     } catch (error) {
       console.error("Memory reset error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  app2.get("/api/voice/token", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      if (!deepgramVoiceService.isConfigured()) {
+        return res.status(503).json({ error: "Voice service not configured" });
+      }
+      const token = await deepgramVoiceService.createSessionToken();
+      res.json({ token });
+    } catch (error) {
+      console.error("[Voice API] Token error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  app2.post("/api/voice/process", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const user = req.user;
+      const { audioData, returnAudio = true } = req.body;
+      if (!audioData) {
+        return res.status(400).json({ error: "Audio data required" });
+      }
+      if (typeof audioData !== "string") {
+        return res.status(400).json({ error: "Audio data must be a base64 string" });
+      }
+      const base64Pattern = /^[A-Za-z0-9+/]*={0,2}$/;
+      if (!base64Pattern.test(audioData)) {
+        return res.status(400).json({ error: "Invalid base64 audio data format" });
+      }
+      const MAX_AUDIO_SIZE = 10 * 1024 * 1024;
+      if (audioData.length > MAX_AUDIO_SIZE) {
+        return res.status(400).json({
+          error: "Audio data exceeds maximum size limit of 10MB"
+        });
+      }
+      if (!deepgramVoiceService.isConfigured()) {
+        return res.status(503).json({ error: "Voice service not configured" });
+      }
+      let audioBuffer;
+      try {
+        audioBuffer = Buffer.from(audioData, "base64");
+      } catch (decodeError) {
+        return res.status(400).json({ error: "Failed to decode base64 audio data" });
+      }
+      if (audioBuffer.length === 0) {
+        return res.status(400).json({ error: "Audio data is empty" });
+      }
+      const result = await deepgramVoiceService.processVoiceMessage(
+        audioBuffer,
+        user.businessAccountId,
+        user.id,
+        returnAudio
+      );
+      res.json({
+        transcript: result.transcript,
+        response: result.response,
+        audio: result.audio ? result.audio.toString("base64") : void 0,
+        products: result.products
+      });
+    } catch (error) {
+      console.error("[Voice API] Processing error:", error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -5604,7 +7056,7 @@ async function registerRoutes(app2) {
   app2.patch("/api/business-accounts/:id/features", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
       const { id } = req.params;
-      const { shopifyEnabled, appointmentsEnabled } = req.body;
+      const { shopifyEnabled, appointmentsEnabled, voiceModeEnabled } = req.body;
       const updates = {};
       if (shopifyEnabled !== void 0) {
         if (typeof shopifyEnabled !== "boolean") {
@@ -5617,6 +7069,12 @@ async function registerRoutes(app2) {
           return res.status(400).json({ error: "appointmentsEnabled must be a boolean" });
         }
         updates.appointmentsEnabled = appointmentsEnabled ? "true" : "false";
+      }
+      if (voiceModeEnabled !== void 0) {
+        if (typeof voiceModeEnabled !== "boolean") {
+          return res.status(400).json({ error: "voiceModeEnabled must be a boolean" });
+        }
+        updates.voiceModeEnabled = voiceModeEnabled ? "true" : "false";
       }
       if (Object.keys(updates).length === 0) {
         return res.status(400).json({ error: "No valid feature settings provided" });
@@ -5817,6 +7275,184 @@ async function registerRoutes(app2) {
       res.status(500).json({ error: error.message });
     }
   });
+  app2.get("/api/public-chat-link", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const user = req.user;
+      const businessAccountId = user.businessAccountId;
+      const link = await storage.getOrCreatePublicChatLink(businessAccountId);
+      const baseUrl = process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : req.protocol + "://" + req.get("host");
+      res.json({
+        ...link,
+        url: `${baseUrl}/public-chat/${link.token}`
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+  app2.patch("/api/public-chat-link/toggle", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const user = req.user;
+      const businessAccountId = user.businessAccountId;
+      const link = await storage.togglePublicChatLinkStatus(businessAccountId);
+      const baseUrl = process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : req.protocol + "://" + req.get("host");
+      res.json({
+        ...link,
+        url: `${baseUrl}/public-chat/${link.token}`
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+  app2.post("/api/public-chat-link/regenerate", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const user = req.user;
+      const businessAccountId = user.businessAccountId;
+      const newToken = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      const link = await storage.regeneratePublicChatLinkToken(businessAccountId, newToken);
+      const baseUrl = process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : req.protocol + "://" + req.get("host");
+      res.json({
+        ...link,
+        url: `${baseUrl}/public-chat/${link.token}`
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+  app2.patch("/api/public-chat-link/password", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const user = req.user;
+      const businessAccountId = user.businessAccountId;
+      const { password } = req.body;
+      const updatedLink = await storage.updatePublicChatLinkPassword(businessAccountId, password || null);
+      const baseUrl = process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : req.protocol + "://" + req.get("host");
+      res.json({
+        ...updatedLink,
+        url: `${baseUrl}/public-chat/${updatedLink.token}`
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+  app2.post("/api/public-chat/:token/verify-password", async (req, res) => {
+    try {
+      const { token } = req.params;
+      const { password } = req.body;
+      const link = await storage.getPublicChatLinkByToken(token);
+      if (!link || link.isActive !== "true") {
+        return res.status(404).json({ error: "Chat link not found or disabled", verified: false });
+      }
+      if (!link.password) {
+        res.cookie(`public_chat_verified_${token}`, "true", {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "strict",
+          signed: true,
+          maxAge: 24 * 60 * 60 * 1e3
+          // 24 hours
+        });
+        return res.json({ verified: true });
+      }
+      if (password === link.password) {
+        res.cookie(`public_chat_verified_${token}`, "true", {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "strict",
+          signed: true,
+          maxAge: 24 * 60 * 60 * 1e3
+          // 24 hours
+        });
+        return res.json({ verified: true });
+      }
+      return res.status(401).json({ verified: false, error: "Incorrect password" });
+    } catch (error) {
+      res.status(500).json({ error: error.message, verified: false });
+    }
+  });
+  app2.get("/api/public-chat/:token", async (req, res) => {
+    try {
+      const { token } = req.params;
+      const link = await storage.getPublicChatLinkByToken(token);
+      if (!link) {
+        return res.status(404).json({ error: "Chat link not found" });
+      }
+      if (link.isActive !== "true") {
+        return res.status(404).json({ error: "Chat link is disabled" });
+      }
+      await storage.updatePublicChatLinkAccess(token);
+      const businessAccount = await storage.getBusinessAccount(link.businessAccountId);
+      if (!businessAccount) {
+        return res.status(404).json({ error: "Business account not found" });
+      }
+      const websiteAnalysis2 = await storage.getWebsiteAnalysis(link.businessAccountId);
+      const widgetSettings2 = await storage.getWidgetSettings(link.businessAccountId);
+      res.json({
+        businessAccount: {
+          id: businessAccount.id,
+          name: businessAccount.name,
+          website: businessAccount.website,
+          description: businessAccount.description
+        },
+        websiteAnalysis: websiteAnalysis2 ? {
+          analyzedContent: websiteAnalysis2.analyzedContent ? JSON.parse(websiteAnalysis2.analyzedContent) : null
+        } : null,
+        widgetSettings: widgetSettings2 ? {
+          chatColor: widgetSettings2.chatColor,
+          chatColorEnd: widgetSettings2.chatColorEnd,
+          widgetHeaderText: widgetSettings2.widgetHeaderText,
+          currency: widgetSettings2.currency
+        } : null,
+        hasPassword: !!link.password
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+  app2.get("/api/public-chat/:token/intro", async (req, res) => {
+    try {
+      const { token } = req.params;
+      const link = await storage.getPublicChatLinkByToken(token);
+      if (!link || link.isActive !== "true") {
+        return res.status(404).json({ error: "Chat link not found or disabled" });
+      }
+      if (link.password) {
+        const verificationCookie = req.signedCookies[`public_chat_verified_${token}`];
+        if (verificationCookie !== "true") {
+          return res.status(403).json({ error: "Password verification required" });
+        }
+      }
+      const businessAccountId = link.businessAccountId;
+      const intro = await generateIntroMessage(businessAccountId);
+      res.json({ intro });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+  app2.post("/api/public-chat/:token/message", async (req, res) => {
+    try {
+      const { token } = req.params;
+      const { message } = req.body;
+      if (!message || typeof message !== "string") {
+        return res.status(400).json({ error: "Message is required" });
+      }
+      const link = await storage.getPublicChatLinkByToken(token);
+      if (!link || link.isActive !== "true") {
+        return res.status(404).json({ error: "Chat link not found or disabled" });
+      }
+      if (link.password) {
+        const verificationCookie = req.signedCookies[`public_chat_verified_${token}`];
+        if (verificationCookie !== "true") {
+          return res.status(403).json({ error: "Password verification required" });
+        }
+      }
+      const businessAccountId = link.businessAccountId;
+      const publicUserId = `public_${token}`;
+      const response = await processPublicChatMessage(message, businessAccountId, publicUserId);
+      res.json(response);
+    } catch (error) {
+      console.error("[Public Chat] Error processing message:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
   app2.post("/api/business-accounts/:id/users", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
       const { username, password } = req.body;
@@ -5999,16 +7635,16 @@ async function registerRoutes(app2) {
       res.status(500).json({ error: "An error occurred. Please try again later." });
     }
   });
-  const portfolioDir = path.join(process.cwd(), "Portfolio");
-  if (!fs.existsSync(portfolioDir)) {
-    fs.mkdirSync(portfolioDir, { recursive: true });
+  const portfolioDir = path2.join(process.cwd(), "Portfolio");
+  if (!fs2.existsSync(portfolioDir)) {
+    fs2.mkdirSync(portfolioDir, { recursive: true });
   }
   const multerStorage = multer.diskStorage({
     destination: (req, file, cb) => {
       cb(null, portfolioDir);
     },
     filename: (req, file, cb) => {
-      const uniqueName = `${randomUUID()}${path.extname(file.originalname)}`;
+      const uniqueName = `${randomUUID()}${path2.extname(file.originalname)}`;
       cb(null, uniqueName);
     }
   });
@@ -6043,11 +7679,41 @@ async function registerRoutes(app2) {
         // .csv
       ];
       const allowedExtensions = [".xlsx", ".xls", ".csv"];
-      const fileExtension = path.extname(file.originalname).toLowerCase();
+      const fileExtension = path2.extname(file.originalname).toLowerCase();
       if (allowedMimes.includes(file.mimetype) || allowedExtensions.includes(fileExtension)) {
         cb(null, true);
       } else {
         cb(new Error("Invalid file type. Only Excel (.xlsx, .xls) and CSV (.csv) files are allowed."));
+      }
+    }
+  });
+  const trainingDocsDir = path2.join(process.cwd(), "uploads", "training-docs");
+  if (!fs2.existsSync(trainingDocsDir)) {
+    fs2.mkdirSync(trainingDocsDir, { recursive: true });
+  }
+  const pdfStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+      cb(null, trainingDocsDir);
+    },
+    filename: (req, file, cb) => {
+      const uniqueName = `${randomUUID()}${path2.extname(file.originalname)}`;
+      cb(null, uniqueName);
+    }
+  });
+  const pdfUpload = multer({
+    storage: pdfStorage,
+    limits: {
+      fileSize: 25 * 1024 * 1024
+      // 25MB limit
+    },
+    fileFilter: (req, file, cb) => {
+      const allowedMimes = ["application/pdf"];
+      const allowedExtensions = [".pdf"];
+      const fileExtension = path2.extname(file.originalname).toLowerCase();
+      if (allowedMimes.includes(file.mimetype) || allowedExtensions.includes(fileExtension)) {
+        cb(null, true);
+      } else {
+        cb(new Error("Invalid file type. Only PDF files are allowed."));
       }
     }
   });
@@ -6070,17 +7736,17 @@ async function registerRoutes(app2) {
         return res.status(400).json({ error: "Image URL required" });
       }
       const filename = imageUrl.replace("/portfolio/", "");
-      const sanitizedFilename = path.basename(filename);
+      const sanitizedFilename = path2.basename(filename);
       if (sanitizedFilename.startsWith(".")) {
         return res.status(403).json({ error: "Access denied" });
       }
-      const filepath = path.join(portfolioDir, sanitizedFilename);
-      const normalizedPath = path.normalize(filepath);
+      const filepath = path2.join(portfolioDir, sanitizedFilename);
+      const normalizedPath = path2.normalize(filepath);
       if (!normalizedPath.startsWith(portfolioDir)) {
         return res.status(403).json({ error: "Access denied" });
       }
-      if (fs.existsSync(normalizedPath)) {
-        fs.unlinkSync(normalizedPath);
+      if (fs2.existsSync(normalizedPath)) {
+        fs2.unlinkSync(normalizedPath);
       }
       res.json({ success: true });
     } catch (error) {
@@ -6091,16 +7757,16 @@ async function registerRoutes(app2) {
   app2.get("/portfolio/:filename", async (req, res) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path.basename(filename);
+      const sanitizedFilename = path2.basename(filename);
       if (sanitizedFilename.startsWith(".")) {
         return res.status(403).json({ error: "Access denied" });
       }
-      const filepath = path.join(portfolioDir, sanitizedFilename);
-      const normalizedPath = path.normalize(filepath);
+      const filepath = path2.join(portfolioDir, sanitizedFilename);
+      const normalizedPath = path2.normalize(filepath);
       if (!normalizedPath.startsWith(portfolioDir)) {
         return res.status(403).json({ error: "Access denied" });
       }
-      if (!fs.existsSync(normalizedPath)) {
+      if (!fs2.existsSync(normalizedPath)) {
         return res.status(404).json({ error: "Image not found" });
       }
       res.sendFile(normalizedPath, {
@@ -6537,190 +8203,6 @@ async function registerRoutes(app2) {
       res.status(500).json({ error: error.message });
     }
   });
-  app2.post("/api/suggest-faqs", requireAuth, requireBusinessAccount, async (req, res) => {
-    try {
-      const { websiteUrl } = req.body;
-      const businessAccountId = req.user?.businessAccountId;
-      if (!websiteUrl) {
-        return res.status(400).json({ error: "Website URL is required" });
-      }
-      if (!businessAccountId) {
-        return res.status(400).json({ error: "Business account not found" });
-      }
-      let parsedUrl;
-      try {
-        parsedUrl = new URL(websiteUrl);
-      } catch (e) {
-        return res.status(400).json({ error: "Invalid URL format" });
-      }
-      if (!["http:", "https:"].includes(parsedUrl.protocol)) {
-        return res.status(400).json({ error: "Only HTTP and HTTPS URLs are allowed" });
-      }
-      const hostname = parsedUrl.hostname.toLowerCase();
-      const privateRanges = [
-        /^localhost$/i,
-        /^127\./,
-        /^10\./,
-        /^172\.(1[6-9]|2[0-9]|3[0-1])\./,
-        /^192\.168\./,
-        /^169\.254\./,
-        /^::1$/,
-        /^fc00:/,
-        /^fe80:/,
-        /^0\.0\.0\.0$/
-      ];
-      if (privateRanges.some((range) => range.test(hostname))) {
-        return res.status(400).json({ error: "Access to private or local networks is not allowed" });
-      }
-      if (hostname === "169.254.169.254" || hostname.includes("metadata")) {
-        return res.status(400).json({ error: "Access to metadata endpoints is not allowed" });
-      }
-      const openaiApiKey = await storage.getBusinessAccountOpenAIKey(businessAccountId);
-      if (!openaiApiKey) {
-        return res.status(400).json({ error: "OpenAI API key not configured. Please add your API key in Settings." });
-      }
-      let websiteContent = "";
-      let usedHttpFallback = false;
-      const attemptFetch = async (url, allowRedirects = false) => {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3e4);
-        const response = await fetch(url, {
-          signal: controller.signal,
-          redirect: allowRedirects ? "follow" : "manual",
-          // Allow redirects for HTTP fallback
-          headers: {
-            "User-Agent": "Hi-Chroney-FAQ-Bot/1.0"
-          }
-        });
-        clearTimeout(timeoutId);
-        if (!allowRedirects && response.status >= 300 && response.status < 400) {
-          throw new Error("Redirects are not allowed for security reasons. Please provide the direct URL.");
-        }
-        if (!response.ok) {
-          throw new Error(`Failed to fetch website: ${response.statusText}`);
-        }
-        const html = await response.text();
-        return html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "").replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().substring(0, 5e4);
-      };
-      try {
-        websiteContent = await attemptFetch(parsedUrl.toString(), true);
-      } catch (fetchError) {
-        console.error("Fetch error details:", fetchError);
-        if (fetchError.name === "AbortError") {
-          return res.status(408).json({ error: "Website took too long to respond (timeout after 30 seconds). Please try again or use a different URL." });
-        }
-        const errorMsg = fetchError.message || "";
-        const causeMsg = fetchError.cause?.message || "";
-        const hasSSLError = errorMsg.includes("certificate") || causeMsg.includes("certificate") || errorMsg.includes("SSL") || causeMsg.includes("SSL") || errorMsg.includes("self signed") || causeMsg.includes("self signed");
-        if (hasSSLError && parsedUrl.protocol === "https:") {
-          try {
-            console.log("SSL error detected, attempting HTTP fallback with redirects allowed...");
-            const httpUrl = parsedUrl.toString().replace("https://", "http://");
-            websiteContent = await attemptFetch(httpUrl, true);
-            usedHttpFallback = true;
-            console.log("HTTP fallback successful");
-          } catch (httpError) {
-            console.error("HTTP fallback failed:", httpError);
-            let errorMessage = "This website has SSL certificate issues and cannot be accessed.";
-            if (parsedUrl.hostname.startsWith("www.")) {
-              const withoutWww = parsedUrl.hostname.substring(4);
-              errorMessage += ` Try using "${parsedUrl.protocol}//${withoutWww}" instead (without www).`;
-            } else {
-              errorMessage += ` Try using "www.${parsedUrl.hostname}" instead (with www), or use the HTTP version.`;
-            }
-            return res.status(400).json({ error: errorMessage });
-          }
-        } else if (hasSSLError) {
-          return res.status(400).json({
-            error: "This website has SSL certificate issues and cannot be accessed securely."
-          });
-        } else if (errorMsg.includes("ECONNREFUSED") || errorMsg.includes("ENOTFOUND") || errorMsg.includes("ETIMEDOUT") || fetchError.code === "ECONNREFUSED") {
-          return res.status(400).json({
-            error: "Unable to connect to this website. Please check the URL and try again."
-          });
-        } else {
-          if (fetchError.cause) {
-            console.error("Fetch error cause:", fetchError.cause);
-          }
-          return res.status(400).json({
-            error: `Failed to fetch website: ${errorMsg}. The website may be blocking automated access or have connectivity issues.`
-          });
-        }
-      }
-      const OpenAI3 = (await import("openai")).default;
-      const openai = new OpenAI3({ apiKey: openaiApiKey });
-      const prompt = `Analyze the following website content and generate up to 40 frequently asked questions (FAQs) with detailed answers based on the content.
-
-Website Content:
-${websiteContent}
-
-Instructions:
-1. Generate FAQs that customers would actually ask about this business
-2. Provide clear, helpful answers based on the website content
-3. Cover different categories: products/services, pricing, policies, shipping, returns, support, etc.
-4. Be specific and accurate - only use information from the website content
-5. Format your response as a JSON array with this structure:
-[
-  {
-    "question": "Question text here?",
-    "answer": "Detailed answer here",
-    "category": "Category name (e.g., Products, Pricing, Shipping, Returns, Support, General)"
-  }
-]
-
-Generate exactly 40 FAQs if there's enough content, or as many as you can based on the available information (minimum 10).`;
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: "You are an expert at analyzing website content and creating helpful FAQs for businesses. Always respond with valid JSON only."
-          },
-          {
-            role: "user",
-            content: prompt
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 4e3,
-        response_format: { type: "json_object" }
-      });
-      const responseText = completion.choices[0].message.content || '{"faqs": []}';
-      let suggestedFaqs;
-      try {
-        const parsed = JSON.parse(responseText);
-        suggestedFaqs = Array.isArray(parsed) ? parsed : parsed.faqs || [];
-      } catch (parseError) {
-        return res.status(500).json({ error: "Failed to parse AI response" });
-      }
-      if (suggestedFaqs.length > 40) {
-        suggestedFaqs = suggestedFaqs.slice(0, 40);
-      }
-      const savedDrafts = [];
-      for (const faq of suggestedFaqs) {
-        try {
-          const draftFaq = await storage.createDraftFaq({
-            businessAccountId,
-            question: faq.question || "",
-            answer: faq.answer || "",
-            category: faq.category || "General",
-            sourceUrl: websiteUrl
-          });
-          savedDrafts.push(draftFaq);
-        } catch (saveError) {
-          console.error("Error saving draft FAQ:", saveError);
-        }
-      }
-      res.json({
-        success: true,
-        count: savedDrafts.length,
-        message: `${savedDrafts.length} FAQ drafts have been saved. You can now review and edit them before publishing.`
-      });
-    } catch (error) {
-      console.error("Error suggesting FAQs:", error);
-      res.status(500).json({ error: error.message || "Failed to suggest FAQs" });
-    }
-  });
   app2.post("/api/faqs/bulk", requireAuth, requireBusinessAccount, async (req, res) => {
     try {
       const { faqs: faqs2 } = req.body;
@@ -6754,105 +8236,101 @@ Generate exactly 40 FAQs if there's enough content, or as many as you can based 
       res.status(500).json({ error: error.message || "Failed to add FAQs" });
     }
   });
-  app2.get("/api/draft-faqs", requireAuth, requireBusinessAccount, async (req, res) => {
+  app2.post("/api/training-documents", requireAuth, requireBusinessAccount, pdfUpload.single("file"), async (req, res) => {
     try {
       const businessAccountId = req.user?.businessAccountId;
+      const userId = req.user?.id;
       if (!businessAccountId) {
         return res.status(400).json({ error: "Business account not found" });
       }
-      const drafts = await storage.getAllDraftFaqs(businessAccountId);
-      res.json(drafts);
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-  app2.put("/api/draft-faqs/:id", requireAuth, requireBusinessAccount, async (req, res) => {
-    try {
-      const businessAccountId = req.user?.businessAccountId;
-      if (!businessAccountId) {
-        return res.status(400).json({ error: "Business account not found" });
+      if (!userId) {
+        return res.status(400).json({ error: "User not found" });
       }
-      const { question, answer, category } = req.body;
-      const updatedDraft = await storage.updateDraftFaq(req.params.id, businessAccountId, {
-        question,
-        answer,
-        category
+      if (!req.file) {
+        return res.status(400).json({ error: "PDF file is required" });
+      }
+      const documentData = insertTrainingDocumentSchema.parse({
+        businessAccountId,
+        filename: req.file.filename,
+        originalFilename: req.file.originalname,
+        fileSize: req.file.size.toString(),
+        storageKey: req.file.path,
+        uploadStatus: "pending",
+        uploadedBy: userId
       });
-      res.json(updatedDraft);
+      const document2 = await storage.createTrainingDocument(documentData);
+      pdfProcessingService.processDocument(
+        document2.id,
+        req.file.path,
+        businessAccountId,
+        req.file.originalname
+      ).catch((error) => {
+        console.error("Background PDF processing error:", error);
+      });
+      res.status(201).json(document2);
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      console.error("Error uploading training document:", error);
+      if (req.file?.path) {
+        try {
+          fs2.unlinkSync(req.file.path);
+        } catch (unlinkError) {
+          console.error("Error deleting uploaded file:", unlinkError);
+        }
+      }
+      res.status(500).json({ error: error.message || "Failed to upload training document" });
     }
   });
-  app2.delete("/api/draft-faqs/:id", requireAuth, requireBusinessAccount, async (req, res) => {
+  app2.get("/api/training-documents", requireAuth, requireBusinessAccount, async (req, res) => {
     try {
       const businessAccountId = req.user?.businessAccountId;
       if (!businessAccountId) {
         return res.status(400).json({ error: "Business account not found" });
       }
-      await storage.deleteDraftFaq(req.params.id, businessAccountId);
+      const documents = await storage.getTrainingDocuments(businessAccountId);
+      res.json(documents);
+    } catch (error) {
+      console.error("Error fetching training documents:", error);
+      res.status(500).json({ error: error.message || "Failed to fetch training documents" });
+    }
+  });
+  app2.get("/api/training-documents/:id", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+      const document2 = await storage.getTrainingDocument(req.params.id, businessAccountId);
+      if (!document2) {
+        return res.status(404).json({ error: "Training document not found" });
+      }
+      res.json(document2);
+    } catch (error) {
+      console.error("Error fetching training document:", error);
+      res.status(500).json({ error: error.message || "Failed to fetch training document" });
+    }
+  });
+  app2.delete("/api/training-documents/:id", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+      const document2 = await storage.getTrainingDocument(req.params.id, businessAccountId);
+      if (!document2) {
+        return res.status(404).json({ error: "Training document not found" });
+      }
+      if (document2.storageKey) {
+        try {
+          fs2.unlinkSync(document2.storageKey);
+        } catch (fileError) {
+          console.error("Error deleting file:", fileError);
+        }
+      }
+      await storage.deleteTrainingDocument(req.params.id, businessAccountId);
       res.json({ success: true });
     } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-  app2.post("/api/draft-faqs/:id/publish", requireAuth, requireBusinessAccount, async (req, res) => {
-    try {
-      const businessAccountId = req.user?.businessAccountId;
-      if (!businessAccountId) {
-        return res.status(400).json({ error: "Business account not found" });
-      }
-      const faq = await storage.publishDraftFaq(req.params.id, businessAccountId);
-      res.json({ success: true, faq });
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-  app2.post("/api/draft-faqs/bulk-publish", requireAuth, requireBusinessAccount, async (req, res) => {
-    try {
-      const businessAccountId = req.user?.businessAccountId;
-      if (!businessAccountId) {
-        return res.status(400).json({ error: "Business account not found" });
-      }
-      const { ids } = req.body;
-      if (!Array.isArray(ids) || ids.length === 0) {
-        return res.status(400).json({ error: "Invalid draft IDs" });
-      }
-      let publishedCount = 0;
-      for (const id of ids) {
-        try {
-          await storage.publishDraftFaq(id, businessAccountId);
-          publishedCount++;
-        } catch (error) {
-          console.error(`Failed to publish draft ${id}:`, error);
-        }
-      }
-      res.json({ success: true, count: publishedCount });
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-  app2.post("/api/draft-faqs/bulk-delete", requireAuth, requireBusinessAccount, async (req, res) => {
-    try {
-      const businessAccountId = req.user?.businessAccountId;
-      if (!businessAccountId) {
-        return res.status(400).json({ error: "Business account not found" });
-      }
-      const { ids } = req.body;
-      if (!Array.isArray(ids) || ids.length === 0) {
-        return res.status(400).json({ error: "Invalid draft IDs" });
-      }
-      let deletedCount = 0;
-      for (const id of ids) {
-        try {
-          await storage.deleteDraftFaq(id, businessAccountId);
-          deletedCount++;
-        } catch (error) {
-          console.error(`Failed to delete draft ${id}:`, error);
-        }
-      }
-      res.json({ success: true, count: deletedCount });
-    } catch (error) {
-      res.status(500).json({ error: error.message });
+      console.error("Error deleting training document:", error);
+      res.status(500).json({ error: error.message || "Failed to delete training document" });
     }
   });
   app2.post("/api/leads", requireAuth, requireBusinessAccount, async (req, res) => {
@@ -7338,6 +8816,20 @@ Generate exactly 40 FAQs if there's enough content, or as many as you can based 
       res.status(500).json({ error: error.message });
     }
   });
+  app2.delete("/api/analyzed-pages/:id", requireAuth, requireBusinessAccount, async (req, res) => {
+    try {
+      const businessAccountId = req.user?.businessAccountId;
+      if (!businessAccountId) {
+        return res.status(400).json({ error: "Business account not found" });
+      }
+      const { id } = req.params;
+      await storage.deleteAnalyzedPage(id, businessAccountId);
+      businessContextCache.invalidate(`business_context_${businessAccountId}`);
+      res.json({ success: true, message: "Analyzed page deleted successfully" });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
   app2.get("/api/widget-settings/public", async (req, res) => {
     try {
       const businessAccountId = req.query.businessAccountId;
@@ -7399,7 +8891,13 @@ Generate exactly 40 FAQs if there's enough content, or as many as you can based 
         recoveryWhatsappEnabled,
         twilioAccountSid,
         twilioAuthToken,
-        twilioWhatsappFrom
+        twilioWhatsappFrom,
+        widgetWidth,
+        widgetHeight,
+        widgetPosition,
+        bubbleSize,
+        sizePreset,
+        autoOpenChat
       } = req.body;
       const updateData = {};
       if (chatColor !== void 0) updateData.chatColor = chatColor;
@@ -7412,6 +8910,12 @@ Generate exactly 40 FAQs if there's enough content, or as many as you can based 
       if (personality !== void 0) updateData.personality = personality;
       if (currency !== void 0) updateData.currency = currency;
       if (customInstructions !== void 0) updateData.customInstructions = customInstructions;
+      if (widgetWidth !== void 0) updateData.widgetWidth = widgetWidth;
+      if (widgetHeight !== void 0) updateData.widgetHeight = widgetHeight;
+      if (widgetPosition !== void 0) updateData.widgetPosition = widgetPosition;
+      if (bubbleSize !== void 0) updateData.bubbleSize = bubbleSize;
+      if (sizePreset !== void 0) updateData.sizePreset = sizePreset;
+      if (autoOpenChat !== void 0) updateData.autoOpenChat = autoOpenChat;
       if (appointmentBookingEnabled !== void 0) updateData.appointmentBookingEnabled = appointmentBookingEnabled;
       if (enableCartRecovery !== void 0) updateData.enableCartRecovery = enableCartRecovery;
       if (recoveryTriggerMinutes !== void 0) updateData.recoveryTriggerMinutes = recoveryTriggerMinutes;
@@ -7813,25 +9317,25 @@ Generate exactly 40 FAQs if there's enough content, or as many as you can based 
     try {
       const timestamp2 = Date.now();
       const filename = `database_backup_${timestamp2}.sql`;
-      const backupPath = path.join(__dirname, "..", "tmp", filename);
-      const tmpDir = path.join(__dirname, "..", "tmp");
-      if (!fs.existsSync(tmpDir)) {
-        fs.mkdirSync(tmpDir, { recursive: true });
+      const backupPath = path2.join(__dirname, "..", "tmp", filename);
+      const tmpDir = path2.join(__dirname, "..", "tmp");
+      if (!fs2.existsSync(tmpDir)) {
+        fs2.mkdirSync(tmpDir, { recursive: true });
       }
       const databaseUrl = process.env.DATABASE_URL;
       if (!databaseUrl) {
         return res.status(500).json({ error: "Database URL not configured" });
       }
       await execAsync(`pg_dump "${databaseUrl}" > "${backupPath}"`);
-      if (!fs.existsSync(backupPath)) {
+      if (!fs2.existsSync(backupPath)) {
         return res.status(500).json({ error: "Failed to create backup file" });
       }
       res.setHeader("Content-Type", "application/sql");
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-      const fileStream = fs.createReadStream(backupPath);
+      const fileStream = fs2.createReadStream(backupPath);
       fileStream.pipe(res);
       fileStream.on("end", () => {
-        fs.unlink(backupPath, (err) => {
+        fs2.unlink(backupPath, (err) => {
           if (err) console.error("Failed to delete backup file:", err);
         });
       });
@@ -7889,8 +9393,8 @@ Generate exactly 40 FAQs if there's enough content, or as many as you can based 
           }))
         };
       });
-      const OpenAI3 = (await import("openai")).default;
-      const openai = new OpenAI3({ apiKey: openaiApiKey });
+      const OpenAI4 = (await import("openai")).default;
+      const openai = new OpenAI4({ apiKey: openaiApiKey });
       const prompt = `Analyze these customer conversations and provide insights:
 
 ${JSON.stringify(conversationSummaries, null, 2)}
@@ -7943,19 +9447,93 @@ Format your response as JSON with this structure:
     }
   });
   const httpServer = createServer(app2);
+  const wss = new WebSocketServer({ noServer: true });
+  function extractSessionCookie(cookieHeader) {
+    if (!cookieHeader) return null;
+    const cookies = cookieHeader.split(";").map((c) => c.trim());
+    for (const cookie of cookies) {
+      const [name, value] = cookie.split("=");
+      if (name === "session") {
+        return value;
+      }
+    }
+    return null;
+  }
+  httpServer.on("upgrade", async (request, socket, head) => {
+    const url = new URL(request.url || "", `http://${request.headers.host}`);
+    if (url.pathname === "/ws/voice") {
+      try {
+        const businessAccountId = url.searchParams.get("businessAccountId");
+        const userId = url.searchParams.get("userId");
+        if (!businessAccountId || !userId) {
+          socket.write("HTTP/1.1 400 Bad Request\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        const sessionToken = extractSessionCookie(request.headers.cookie);
+        if (!sessionToken) {
+          console.warn("[WebSocket] No session cookie provided for voice connection");
+          socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        const user = await validateSession(sessionToken);
+        if (!user) {
+          console.warn("[WebSocket] Invalid or expired session for voice connection");
+          socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        if (user.role !== "super_admin" && user.businessAccountId !== businessAccountId) {
+          console.warn("[WebSocket] User does not have access to business account:", {
+            userId: user.id,
+            userBusinessAccountId: user.businessAccountId,
+            requestedBusinessAccountId: businessAccountId
+          });
+          socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        if (user.role !== "super_admin" && user.id !== userId) {
+          console.warn("[WebSocket] User ID mismatch:", {
+            authenticatedUserId: user.id,
+            requestedUserId: userId
+          });
+          socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        console.log("[WebSocket] Voice connection authenticated:", {
+          userId: user.id,
+          businessAccountId,
+          role: user.role
+        });
+        wss.handleUpgrade(request, socket, head, (ws2) => {
+          console.log("[WebSocket] Voice connection established");
+          realtimeVoiceService.handleConnection(ws2, businessAccountId, userId);
+        });
+      } catch (error) {
+        console.error("[WebSocket] Upgrade error:", error);
+        socket.write("HTTP/1.1 500 Internal Server Error\r\n\r\n");
+        socket.destroy();
+      }
+    } else {
+      socket.destroy();
+    }
+  });
   return httpServer;
 }
 
 // server/vite.ts
 import express from "express";
-import fs2 from "fs";
-import path3 from "path";
+import fs3 from "fs";
+import path4 from "path";
 import { createServer as createViteServer, createLogger } from "vite";
 
 // vite.config.ts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import path2 from "path";
+import path3 from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 var vite_config_default = defineConfig({
   plugins: [
@@ -7972,14 +9550,14 @@ var vite_config_default = defineConfig({
   ],
   resolve: {
     alias: {
-      "@": path2.resolve(import.meta.dirname, "client", "src"),
-      "@shared": path2.resolve(import.meta.dirname, "shared"),
-      "@assets": path2.resolve(import.meta.dirname, "attached_assets")
+      "@": path3.resolve(import.meta.dirname, "client", "src"),
+      "@shared": path3.resolve(import.meta.dirname, "shared"),
+      "@assets": path3.resolve(import.meta.dirname, "attached_assets")
     }
   },
-  root: path2.resolve(import.meta.dirname, "client"),
+  root: path3.resolve(import.meta.dirname, "client"),
   build: {
-    outDir: path2.resolve(import.meta.dirname, "dist/public"),
+    outDir: path3.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true
   },
   server: {
@@ -8023,19 +9601,19 @@ async function setupVite(app2, server) {
     server: serverOptions,
     appType: "custom"
   });
-  const publicPath = path3.resolve(import.meta.dirname, "..", "public");
+  const publicPath = path4.resolve(import.meta.dirname, "..", "public");
   app2.use(express.static(publicPath));
   app2.use(vite.middlewares);
   app2.use("*", async (req, res, next) => {
     const url = req.originalUrl;
     try {
-      const clientTemplate = path3.resolve(
+      const clientTemplate = path4.resolve(
         import.meta.dirname,
         "..",
         "client",
         "index.html"
       );
-      let template = await fs2.promises.readFile(clientTemplate, "utf-8");
+      let template = await fs3.promises.readFile(clientTemplate, "utf-8");
       template = template.replace(
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${nanoid()}"`
@@ -8049,15 +9627,15 @@ async function setupVite(app2, server) {
   });
 }
 function serveStatic(app2) {
-  const distPath = path3.resolve(import.meta.dirname, "public");
-  if (!fs2.existsSync(distPath)) {
+  const distPath = path4.resolve(import.meta.dirname, "public");
+  if (!fs3.existsSync(distPath)) {
     throw new Error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`
     );
   }
   app2.use(express.static(distPath));
   app2.use("*", (_req, res) => {
-    res.sendFile(path3.resolve(distPath, "index.html"));
+    res.sendFile(path4.resolve(distPath, "index.html"));
   });
 }
 
@@ -8094,6 +9672,14 @@ async function initializeDatabase() {
 // server/index.ts
 init_shopifySyncScheduler();
 var app = express2();
+var COOKIE_SECRET = process.env.COOKIE_SECRET || (() => {
+  const randomSecret = crypto2.randomBytes(32).toString("hex");
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("COOKIE_SECRET environment variable must be set in production");
+  }
+  console.warn("[Security] Using randomly generated cookie secret. Set COOKIE_SECRET env var for production.");
+  return randomSecret;
+})();
 app.use((req, res, next) => {
   const isWidgetRoute = req.path.startsWith("/widget") || req.path.startsWith("/api/chat/widget") || req.path === "/api/widget-settings/public";
   if (isWidgetRoute) {
@@ -8125,10 +9711,10 @@ app.use(express2.json({
   }
 }));
 app.use(express2.urlencoded({ extended: false }));
-app.use(cookieParser());
+app.use(cookieParser(COOKIE_SECRET));
 app.use((req, res, next) => {
   const start = Date.now();
-  const path4 = req.path;
+  const path5 = req.path;
   let capturedJsonResponse = void 0;
   const originalResJson = res.json;
   res.json = function(bodyJson, ...args) {
@@ -8137,8 +9723,8 @@ app.use((req, res, next) => {
   };
   res.on("finish", () => {
     const duration = Date.now() - start;
-    if (path4.startsWith("/api")) {
-      let logLine = `${req.method} ${path4} ${res.statusCode} in ${duration}ms`;
+    if (path5.startsWith("/api")) {
+      let logLine = `${req.method} ${path5} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
