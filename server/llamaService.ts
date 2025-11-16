@@ -8,9 +8,32 @@ interface ConversationMessage {
 }
 
 export class LlamaService {
-  private getOpenAIClient(apiKey?: string): OpenAI {
+  private async decryptApiKeyIfNeeded(encryptedKey?: string): Promise<string | undefined> {
+    if (!encryptedKey) {
+      return undefined;
+    }
+    
+    // If the key looks like it's encrypted (contains colons from our encryption format)
+    if (encryptedKey.includes(':')) {
+      try {
+        const { decrypt } = await import('./services/encryptionService');
+        return decrypt(encryptedKey);
+      } catch (error) {
+        console.error('[LlamaService] Error decrypting API key:', error);
+        throw new Error('Failed to decrypt API key');
+      }
+    }
+    
+    // Otherwise, it's a plain key (from environment variable)
+    return encryptedKey;
+  }
+
+  private async getOpenAIClient(apiKey?: string): Promise<OpenAI> {
+    // Decrypt the business-specific API key if provided
+    const decryptedBusinessKey = await this.decryptApiKeyIfNeeded(apiKey);
+    
     // Use business-specific API key if provided, otherwise fall back to global
-    const key = apiKey || process.env.OPENAI_API_KEY;
+    const key = decryptedBusinessKey || process.env.OPENAI_API_KEY;
     if (!key) {
       throw new Error('No OpenAI API key available. Please configure your API key in Settings.');
     }
@@ -25,7 +48,7 @@ export class LlamaService {
     personality: string = 'friendly',
     apiKey?: string
   ) {
-    const openai = this.getOpenAIClient(apiKey);
+    const openai = await this.getOpenAIClient(apiKey);
 
     const currentDate = new Date().toLocaleDateString('en-US', { 
       weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
@@ -329,7 +352,7 @@ RESPONSE RULES:
     personality: string = 'friendly',
     apiKey?: string
   ) {
-    const openai = this.getOpenAIClient(apiKey);
+    const openai = await this.getOpenAIClient(apiKey);
 
     // Inject personality-aware system prompt if not already present
     const hasSystemPrompt = messages.some(msg => msg.role === 'system');
@@ -633,7 +656,7 @@ RESPONSE RULES:
     personality: string = 'friendly',
     apiKey?: string
   ) {
-    const openai = this.getOpenAIClient(apiKey);
+    const openai = await this.getOpenAIClient(apiKey);
 
     const currentDate = new Date().toLocaleDateString('en-US', { 
       weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
@@ -947,7 +970,7 @@ RESPONSE RULES:
     personality: string = 'friendly',
     apiKey?: string
   ): Promise<string> {
-    const openai = this.getOpenAIClient(apiKey);
+    const openai = await this.getOpenAIClient(apiKey);
 
     const personalityTraits = this.getPersonalityTraits(personality);
 
