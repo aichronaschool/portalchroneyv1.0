@@ -101,7 +101,8 @@ class OpenAIRealtimeService {
    */
   private async connectToOpenAI(connection: VoiceConnection, apiKey: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      const model = process.env.OPENAI_REALTIME_MODEL || 'gpt-4o-realtime-preview-2024-12-17';
+      // Use mini model for faster, more cost-effective voice interactions
+      const model = process.env.OPENAI_REALTIME_MODEL || 'gpt-4o-mini-realtime-preview-2024-12-17';
       const wsUrl = `wss://api.openai.com/v1/realtime?model=${model}`;
 
       console.log('[OpenAI Realtime] Connecting to OpenAI:', model);

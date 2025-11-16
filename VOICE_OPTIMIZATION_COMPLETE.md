@@ -1,7 +1,7 @@
 # Voice Mode Pipeline Optimization - Complete
 
 ## Overview
-Complete rewrite of the voice mode pipeline using ONLY OpenAI Realtime API supported features (WebSocket + PCM16 audio) to fix robotic/choppy voice issues and reduce latency.
+Complete rewrite of the voice mode pipeline using ONLY OpenAI Realtime API supported features (WebSocket + PCM16 audio) to fix robotic/choppy voice issues and reduce latency. Now uses **GPT-4o Mini Realtime** model for faster, more cost-effective voice interactions.
 
 ## Problems Fixed
 
