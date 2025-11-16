@@ -75,7 +75,7 @@ export function VoiceMode({
   useEffect(() => {
     if (isOpen && !audioContextRef.current) {
       try {
-        audioContextRef.current = new AudioContext({ sampleRate: 48000 });
+        audioContextRef.current = new AudioContext({ sampleRate: 24000 });
         console.log('[VoiceMode] AudioContext preloaded, sampleRate:', audioContextRef.current.sampleRate);
       } catch (error) {
         console.error('[VoiceMode] Failed to preload AudioContext:', error);
@@ -341,9 +341,8 @@ export function VoiceMode({
       }
       
       if (!audioContextRef.current) {
-        // Let browser use its default sample rate (usually 48000 Hz)
-        // It will automatically resample our 24kHz audio
-        audioContextRef.current = new AudioContext();
+        // Use 24kHz to match server TTS output for optimal voice quality
+        audioContextRef.current = new AudioContext({ sampleRate: 24000 });
         console.log('[VoiceMode] AudioContext created, sampleRate:', audioContextRef.current.sampleRate);
       }
 
@@ -624,7 +623,7 @@ export function VoiceMode({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          sampleRate: 48000,
+          sampleRate: 24000, // Match server TTS sample rate for consistency
         } 
       });
       
