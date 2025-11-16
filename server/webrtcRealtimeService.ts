@@ -2,13 +2,40 @@
  * WebRTC-based OpenAI Realtime Voice Service
  * Uses WebRTC for full-duplex OPUS audio streaming
  * No PCM16, no base64, no AudioWorklet
+ * 
+ * NOTE: Requires 'wrtc' package to be installed:
+ *   npm install wrtc
+ * 
+ * If wrtc fails to install due to native dependencies,
+ * you may need to install system dependencies first.
  */
 
 import WebSocket from 'ws';
-import { RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, MediaStream, nonstandard } from 'wrtc';
 import { storage } from './storage';
 
-const { RTCVideoSource, RTCAudioSource } = nonstandard;
+// Import wrtc types (install with: npm install wrtc)
+// Using require to avoid TypeScript errors during development
+let RTCPeerConnection: any;
+let RTCSessionDescription: any;
+let RTCIceCandidate: any;
+let MediaStream: any;
+
+try {
+  const wrtc = require('wrtc');
+  RTCPeerConnection = wrtc.RTCPeerConnection;
+  RTCSessionDescription = wrtc.RTCSessionDescription;
+  RTCIceCandidate = wrtc.RTCIceCandidate;
+  MediaStream = wrtc.MediaStream;
+  console.log('[WebRTC Realtime] wrtc module loaded successfully');
+} catch (error) {
+  console.error('[WebRTC Realtime] wrtc module not found. WebRTC functionality will not work.');
+  console.error('[WebRTC Realtime] Install with: npm install wrtc');
+  // Fallback to stub implementations
+  RTCPeerConnection = class {};
+  RTCSessionDescription = class {};
+  RTCIceCandidate = class {};
+  MediaStream = class {};
+}
 
 interface SignalingMessage {
   type: 'offer' | 'answer' | 'ice-candidate' | 'interrupt';
@@ -81,7 +108,7 @@ class WebRTCRealtimeService {
     this.sessions.set(sessionKey, session);
 
     // Set up ICE candidate handling for client connection
-    clientPeerConnection.onicecandidate = (event) => {
+    clientPeerConnection.onicecandidate = (event: any) => {
       if (event.candidate) {
         console.log('[WebRTC Realtime] Sending ICE candidate to client');
         clientWs.send(JSON.stringify({
@@ -92,7 +119,7 @@ class WebRTCRealtimeService {
     };
 
     // Handle incoming audio track from client (user's microphone)
-    clientPeerConnection.ontrack = async (event) => {
+    clientPeerConnection.ontrack = async (event: any) => {
       console.log('[WebRTC Realtime] Received track from client:', event.track.kind);
       
       if (event.track.kind === 'audio') {
@@ -139,13 +166,13 @@ class WebRTCRealtimeService {
         session.openaiPeerConnection = openaiPeerConnection;
 
         // Add client's audio track to OpenAI peer connection
-        clientAudioStream.getTracks().forEach(track => {
+        clientAudioStream.getTracks().forEach((track: any) => {
           console.log('[WebRTC Realtime] Adding client track to OpenAI peer connection');
           openaiPeerConnection.addTrack(track, clientAudioStream);
         });
 
         // Handle ICE candidates for OpenAI connection
-        openaiPeerConnection.onicecandidate = (event) => {
+        openaiPeerConnection.onicecandidate = (event: any) => {
           if (event.candidate && openaiWs.readyState === WebSocket.OPEN) {
             openaiWs.send(JSON.stringify({
               type: 'ice-candidate',
@@ -155,7 +182,7 @@ class WebRTCRealtimeService {
         };
 
         // Handle incoming audio track from OpenAI (assistant's voice)
-        openaiPeerConnection.ontrack = (event) => {
+        openaiPeerConnection.ontrack = (event: any) => {
           console.log('[WebRTC Realtime] Received track from OpenAI:', event.track.kind);
           
           if (event.track.kind === 'audio') {

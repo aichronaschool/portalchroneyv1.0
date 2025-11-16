@@ -40,102 +40,65 @@ export function VoiceMode({
   const [isConnecting, setIsConnecting] = useState(false);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   
+  // WebRTC References
   const wsRef = useRef<WebSocket | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
-  const audioQueueRef = useRef<AudioBuffer[]>([]);
-  const isPlayingRef = useRef(false);
-  const currentAudioSourceRef = useRef<AudioBufferSourceNode | null>(null);
-  const nextPlaybackTimeRef = useRef<number>(0);
-  const audioChunkBufferRef = useRef<Uint8Array[]>([]);
-  const shouldAutoRestartRef = useRef(false);
-  const isOnlineRef = useRef(false);
-  const hasPermissionRef = useRef(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const currentAIMessageIdRef = useRef<string | null>(null);
-  const vadAnalyserRef = useRef<AnalyserNode | null>(null);
-  const vadIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const pendingInterruptRef = useRef(false); // Track interrupt state to ignore late chunks
-  const stateRef = useRef(state); // Mutable ref for VAD to check current state
-  const bufferedTranscriptRef = useRef<{text: string, isFinal: boolean} | null>(null); // Buffer transcripts during interrupt
-  const audioWorkletNodeRef = useRef<AudioWorkletNode | null>(null); // For capturing raw PCM audio
-  const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null); // Fallback for older browsers
-  const mediaSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const { toast } = useToast();
+  const messagesEndRef = useRef<HTMLDivElement>(null>();
+  const hasPermissionRef = useRef(false);
+  const isOnlineRef = useRef(false);
   
-  // Keep stateRef in sync with state
-  useEffect(() => {
-    stateRef.current = state;
-  }, [state]);
+  const { toast } = useToast();
 
   // Auto-scroll to latest message
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, currentTranscript]);
 
-  // Preload AudioContext on mount to eliminate initialization delay
-  // OpenAI Realtime API uses 24kHz PCM16 audio
-  useEffect(() => {
-    if (isOpen && !audioContextRef.current) {
-      try {
-        // Use 24kHz sample rate to match OpenAI Realtime API requirements
-        audioContextRef.current = new AudioContext({ sampleRate: 24000 });
-        console.log('[VoiceMode] AudioContext preloaded, sampleRate:', audioContextRef.current.sampleRate);
-      } catch (error) {
-        console.error('[VoiceMode] Failed to preload AudioContext:', error);
-      }
-    }
-  }, [isOpen]);
-
-  // Initialize WebSocket connection
+  // Initialize WebRTC connection
   useEffect(() => {
     if (!isOpen) return;
 
-    connectWebSocket();
+    connectSignaling();
 
     return () => {
       cleanup();
     };
   }, [isOpen, userId, businessAccountId]);
 
-  const connectWebSocket = () => {
+  const connectSignaling = () => {
     setIsConnecting(true);
     
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
     const wsUrl = `${protocol}//${host}/ws/voice?businessAccountId=${businessAccountId}&userId=${userId}`;
     
-    console.log('[VoiceMode] Connecting to:', wsUrl);
+    console.log('[WebRTC VoiceMode] Connecting to signaling server:', wsUrl);
     
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
     ws.onopen = () => {
-      console.log('[VoiceMode] WebSocket connected');
+      console.log('[WebRTC VoiceMode] Signaling WebSocket connected');
       setIsConnecting(false);
       setIsOnline(true);
       isOnlineRef.current = true;
     };
 
     ws.onmessage = async (event) => {
-      if (event.data instanceof Blob) {
-        // Binary audio data
-        const arrayBuffer = await event.data.arrayBuffer();
-        await handleAudioChunk(arrayBuffer);
-      } else {
-        // JSON message
-        try {
-          const data = JSON.parse(event.data);
-          handleMessage(data);
-        } catch (error) {
-          console.error('[VoiceMode] Failed to parse message:', error);
-        }
+      try {
+        const data = JSON.parse(event.data);
+        await handleSignalingMessage(data);
+      } catch (error) {
+        console.error('[WebRTC VoiceMode] Failed to parse signaling message:', error);
       }
     };
 
     ws.onerror = (error) => {
-      console.error('[VoiceMode] WebSocket error:', error);
+      console.error('[WebRTC VoiceMode] Signaling WebSocket error:', error);
       toast({
         title: "Connection Error",
         description: "Failed to connect to voice service",
@@ -147,56 +110,56 @@ export function VoiceMode({
     };
 
     ws.onclose = () => {
-      console.log('[VoiceMode] WebSocket closed');
+      console.log('[WebRTC VoiceMode] Signaling WebSocket closed');
       setIsOnline(false);
       isOnlineRef.current = false;
       setIsConnecting(false);
-      
-      // Reset state to idle when connection closes
       setState('idle');
       setCurrentTranscript('');
     };
   };
 
-  const handleMessage = async (data: any) => {
-    console.log('[VoiceMode] Received message:', data.type);
+  const handleSignalingMessage = async (data: any) => {
+    console.log('[WebRTC VoiceMode] Received signaling message:', data.type);
 
     switch (data.type) {
       case 'ready':
-        console.log('[VoiceMode] Service ready');
-        // Enable auto-restart for continuous conversation
-        shouldAutoRestartRef.current = true;
-        
-        // Try auto-start, but if it fails (e.g., no user interaction yet), just stay idle
-        // User can tap the orb to start manually
+        console.log('[WebRTC VoiceMode] Signaling server ready');
+        // Auto-start if we already have permission
         if (hasPermissionRef.current === true) {
-          // We already have permission, auto-start
           try {
-            console.log('[VoiceMode] Auto-starting with existing permission...');
-            await startRecording();
-            console.log('[VoiceMode] Auto-start successful');
+            await setupWebRTC();
           } catch (error) {
-            console.error('[VoiceMode] Auto-start failed:', error);
+            console.error('[WebRTC VoiceMode] Auto-start failed:', error);
             setState('idle');
           }
-        } else {
-          // First time - need user interaction for mic permission
-          console.log('[VoiceMode] Waiting for user interaction to request microphone...');
-          setState('idle');
+        }
+        break;
+
+      case 'answer':
+        // Received SDP answer from backend
+        if (peerConnectionRef.current && data.sdp) {
+          const answer = new RTCSessionDescription({
+            type: 'answer',
+            sdp: data.sdp
+          });
+          await peerConnectionRef.current.setRemoteDescription(answer);
+          console.log('[WebRTC VoiceMode] Set remote description (answer)');
+        }
+        break;
+
+      case 'ice-candidate':
+        // Received ICE candidate from backend
+        if (peerConnectionRef.current && data.candidate) {
+          const candidate = new RTCIceCandidate(data.candidate);
+          await peerConnectionRef.current.addIceCandidate(candidate);
+          console.log('[WebRTC VoiceMode] Added ICE candidate');
         }
         break;
 
       case 'transcript':
-        // Buffer final transcripts while interrupt is pending
-        if (pendingInterruptRef.current && data.isFinal) {
-          console.log('[VoiceMode] Buffering transcript during interrupt:', data.text);
-          bufferedTranscriptRef.current = { text: data.text, isFinal: true };
-          return;
-        }
-        
-        // Update current transcript
+        // User transcript from OpenAI
         if (data.isFinal) {
-          // Add final user message
           const userMessage: Message = {
             id: Date.now().toString(),
             role: 'user',
@@ -208,28 +171,15 @@ export function VoiceMode({
           setCurrentTranscript('');
           setState('thinking');
         } else {
-          // Show interim transcript
           setCurrentTranscript(data.text);
         }
         break;
 
-      case 'ai_chunk':
-        // Ignore late chunks if we're pending an interrupt
-        if (pendingInterruptRef.current) {
-          console.log('[VoiceMode] Ignoring late ai_chunk after interrupt');
-          return;
-        }
-        
-        // AI streaming chunk - accumulate text for real-time display
+      case 'ai_transcript':
+        // AI transcript chunk
         setState('speaking');
         
-        // Start voice activity detection to allow user interruption
-        if (!vadIntervalRef.current && mediaStreamRef.current) {
-          startVoiceActivityDetection();
-        }
-        
         if (!currentAIMessageIdRef.current) {
-          // First chunk - create new AI message
           const messageId = Date.now().toString();
           currentAIMessageIdRef.current = messageId;
           const aiMessage: Message = {
@@ -240,7 +190,6 @@ export function VoiceMode({
           };
           setMessages(prev => [...prev, aiMessage]);
         } else {
-          // Subsequent chunks - append to existing message
           setMessages(prev => prev.map(msg => 
             msg.id === currentAIMessageIdRef.current
               ? { ...msg, text: msg.text + data.text }
@@ -250,82 +199,17 @@ export function VoiceMode({
         break;
 
       case 'ai_speaking':
-        // Legacy full-text mode (keep for backwards compatibility)
         setState('speaking');
-        const aiMessage: Message = {
-          id: Date.now().toString(),
-          role: 'assistant',
-          text: data.text,
-          timestamp: new Date()
-        };
-        setMessages(prev => [...prev, aiMessage]);
         break;
 
       case 'ai_done':
-        // Ignore if we're pending an interrupt
-        if (pendingInterruptRef.current) {
-          console.log('[VoiceMode] Ignoring ai_done after interrupt');
-          return;
-        }
-        
-        // AI finished speaking
         currentAIMessageIdRef.current = null;
-        
-        // Stop voice activity detection
-        stopVoiceActivityDetection();
-        
-        // Microphone is already running from when user last spoke
-        // Just transition state back to listening without restarting recorder
-        console.log('[VoiceMode] AI done, transitioning back to listening...');
-        
-        if (shouldAutoRestartRef.current && isOnlineRef.current && hasPermissionRef.current) {
-          console.log('[VoiceMode] Ready for next turn (mic already active)...');
+        console.log('[WebRTC VoiceMode] AI done, ready for next turn');
+        if (isOnlineRef.current && hasPermissionRef.current) {
           setState('listening');
         } else {
-          console.log('[VoiceMode] Not restarting - conditions not met');
           setState('idle');
         }
-        break;
-
-      case 'interrupt_ack':
-        // Server acknowledged interrupt - clear pending flag and replay buffered transcript
-        console.log('[VoiceMode] Interrupt acknowledged by server');
-        pendingInterruptRef.current = false;
-        currentAIMessageIdRef.current = null;
-        
-        // Replay buffered transcript if any
-        if (bufferedTranscriptRef.current) {
-          console.log('[VoiceMode] Replaying buffered transcript:', bufferedTranscriptRef.current.text);
-          const userMessage: Message = {
-            id: Date.now().toString(),
-            role: 'user',
-            text: bufferedTranscriptRef.current.text,
-            timestamp: new Date(),
-            isFinal: true
-          };
-          setMessages(prev => [...prev, userMessage]);
-          bufferedTranscriptRef.current = null;
-          setState('thinking');
-        } else {
-          setState('listening');
-        }
-        break;
-
-      case 'busy':
-        // Queue is saturated - notify user and reset to idle
-        toast({
-          title: "Processing Previous Requests",
-          description: data.message || "Please wait before speaking again...",
-          variant: "default"
-        });
-        setState('idle');
-        setCurrentTranscript('');
-        stopRecording();
-        break;
-
-      case 'processing_load':
-        // Queue is getting full - subtle warning
-        console.warn('[VoiceMode] High processing load, queue size:', data.queueSize);
         break;
 
       case 'error':
@@ -335,383 +219,97 @@ export function VoiceMode({
           variant: "destructive"
         });
         setState('idle');
-        stopRecording();
         break;
     }
   };
 
-  const handleAudioChunk = async (arrayBuffer: ArrayBuffer) => {
+  const setupWebRTC = async () => {
     try {
-      // Drop audio if we're pending an interrupt
-      if (pendingInterruptRef.current) {
-        console.log('[VoiceMode] Dropping audio chunk - interrupt pending');
-        return;
-      }
-      
-      if (!audioContextRef.current) {
-        // Create AudioContext at 24kHz to match OpenAI's output
-        audioContextRef.current = new AudioContext({ sampleRate: 24000 });
-        console.log('[VoiceMode] AudioContext created for playback, sampleRate:', audioContextRef.current.sampleRate);
-      }
+      console.log('[WebRTC VoiceMode] Setting up WebRTC connection...');
 
-      // OpenAI sends PCM16 (Int16Array) audio at 24kHz
-      // Convert raw bytes to Int16Array
-      const pcm16Data = new Int16Array(arrayBuffer);
-      
-      // Validate expected sample count (should be ~0.2s chunks at 24kHz = ~4800 samples)
-      const expectedSamplesPerChunk = 4800; // 0.2s * 24000Hz
-      const tolerance = 0.2; // Allow 20% variance
-      if (Math.abs(pcm16Data.length - expectedSamplesPerChunk) > expectedSamplesPerChunk * tolerance) {
-        console.warn(`[VoiceMode] Unexpected sample count: ${pcm16Data.length} (expected ~${expectedSamplesPerChunk})`);
-      }
-      
-      // Convert Int16 PCM to Float32 for Web Audio API
-      const float32Data = new Float32Array(pcm16Data.length);
-      for (let i = 0; i < pcm16Data.length; i++) {
-        // Convert from Int16 [-32768, 32767] to Float32 [-1, 1]
-        float32Data[i] = pcm16Data[i] / (pcm16Data[i] < 0 ? 32768 : 32767);
-      }
-
-      // Create AudioBuffer at 24kHz (matching OpenAI's output)
-      const audioBuffer = audioContextRef.current.createBuffer(
-        1, // Mono
-        float32Data.length,
-        24000 // Sample rate: 24kHz
-      );
-      
-      // Validate audio buffer sample rate matches expected 24kHz
-      if (audioBuffer.sampleRate !== 24000) {
-        console.error(`[VoiceMode] Sample rate mismatch: ${audioBuffer.sampleRate}Hz (expected 24000Hz)`);
-      }
-      
-      // Copy Float32 data into buffer
-      audioBuffer.getChannelData(0).set(float32Data);
-
-      // Add to queue for playback
-      audioQueueRef.current.push(audioBuffer);
-
-      // Start playback if not already playing
-      if (!isPlayingRef.current) {
-        playNextAudioChunk();
-      }
-    } catch (error) {
-      console.error('[VoiceMode] Audio chunk handling error:', error);
-    }
-  };
-
-
-  // Voice Activity Detection for interruption handling
-  const startVoiceActivityDetection = () => {
-    if (!mediaStreamRef.current || !audioContextRef.current) return;
-    
-    try {
-      // Create analyser for VAD
-      const analyser = audioContextRef.current.createAnalyser();
-      analyser.fftSize = 512;
-      analyser.smoothingTimeConstant = 0.3;
-      
-      // Connect microphone to analyser (but not to destination to avoid echo)
-      const source = audioContextRef.current.createMediaStreamSource(mediaStreamRef.current);
-      source.connect(analyser);
-      vadAnalyserRef.current = analyser;
-      
-      // Monitor audio levels to detect user speech
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-      const VOICE_THRESHOLD = 40; // Adjust based on testing
-      const SILENCE_FRAMES_NEEDED = 3; // Debounce false positives
-      let silenceFrames = SILENCE_FRAMES_NEEDED;
-      
-      vadIntervalRef.current = setInterval(() => {
-        // Use ref to check state (avoid closure issues)
-        if (stateRef.current !== 'speaking') {
-          stopVoiceActivityDetection();
-          return;
-        }
-        
-        analyser.getByteFrequencyData(dataArray);
-        
-        // Calculate average volume
-        const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
-        
-        if (average > VOICE_THRESHOLD) {
-          silenceFrames = 0; // Reset debounce
-          // User is speaking! Interrupt AI
-          handleInterruption();
-        } else {
-          silenceFrames++;
-        }
-      }, 100); // Check every 100ms
-      
-      console.log('[VoiceMode] Voice activity detection started');
-    } catch (error) {
-      console.error('[VoiceMode] Failed to start VAD:', error);
-    }
-  };
-
-  const stopVoiceActivityDetection = () => {
-    if (vadIntervalRef.current) {
-      clearInterval(vadIntervalRef.current);
-      vadIntervalRef.current = null;
-    }
-    vadAnalyserRef.current = null;
-    console.log('[VoiceMode] Voice activity detection stopped');
-  };
-
-  const handleInterruption = () => {
-    console.log('[VoiceMode] User interrupted! Stopping AI response...');
-    
-    // Set pending interrupt flag to ignore late chunks
-    pendingInterruptRef.current = true;
-    
-    // Reset buffered transcript to prepare for new user speech
-    bufferedTranscriptRef.current = null;
-    
-    // Stop VAD to prevent multiple interruptions
-    stopVoiceActivityDetection();
-    
-    // Stop current audio playback
-    if (currentAudioSourceRef.current) {
-      try {
-        currentAudioSourceRef.current.stop();
-      } catch (e) {
-        // Already stopped
-      }
-      currentAudioSourceRef.current = null;
-    }
-    
-    // Clear audio queue
-    audioQueueRef.current = [];
-    audioChunkBufferRef.current = [];
-    isPlayingRef.current = false;
-    nextPlaybackTimeRef.current = 0;
-    currentAIMessageIdRef.current = null;
-    
-    // Send interrupt signal to server
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'interrupt' }));
-    }
-    
-    // Transition to listening state
-    setState('listening');
-    
-    toast({
-      title: "Listening",
-      description: "Go ahead, I'm listening!",
-      duration: 1000
-    });
-  };
-
-  const playNextAudioChunk = () => {
-    // Exit early if interrupt is pending - don't play residual audio
-    if (pendingInterruptRef.current) {
-      console.log('[VoiceMode] Skipping playback - interrupt pending');
-      isPlayingRef.current = false;
-      currentAudioSourceRef.current = null;
-      audioQueueRef.current = [];
-      return;
-    }
-    
-    if (audioQueueRef.current.length === 0) {
-      isPlayingRef.current = false;
-      currentAudioSourceRef.current = null;
-      return;
-    }
-
-    isPlayingRef.current = true;
-    const audioBuffer = audioQueueRef.current.shift()!;
-    
-    if (!audioContextRef.current) return;
-
-    const currentTime = audioContextRef.current.currentTime;
-    
-    // Initialize nextPlaybackTime if this is the first chunk
-    if (nextPlaybackTimeRef.current === 0) {
-      nextPlaybackTimeRef.current = currentTime;
-    }
-    
-    // Check if this chunk is late (would overlap with current playback)
-    if (nextPlaybackTimeRef.current < currentTime) {
-      const latency = currentTime - nextPlaybackTimeRef.current;
-      console.warn(`[VoiceMode] Late audio chunk detected, latency: ${(latency * 1000).toFixed(0)}ms - dropping chunk to prevent overlap`);
-      
-      // Drop this chunk and reset playback time to current time
-      nextPlaybackTimeRef.current = currentTime;
-      
-      // Try next chunk immediately
-      playNextAudioChunk();
-      return;
-    }
-
-    const source = audioContextRef.current.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(audioContextRef.current.destination);
-    
-    currentAudioSourceRef.current = source;
-    
-    // Always schedule at nextPlaybackTime (monotonically increasing)
-    const scheduleTime = nextPlaybackTimeRef.current;
-    
-    source.onended = () => {
-      currentAudioSourceRef.current = null;
-      playNextAudioChunk();
-    };
-
-    source.start(scheduleTime);
-    
-    // Always advance playback time monotonically (never go backwards)
-    nextPlaybackTimeRef.current = scheduleTime + audioBuffer.duration;
-  };
-
-  /**
-   * Convert Float32 audio samples to Int16 PCM format
-   */
-  const float32ToInt16 = (float32Array: Float32Array): Int16Array => {
-    const int16Array = new Int16Array(float32Array.length);
-    for (let i = 0; i < float32Array.length; i++) {
-      // Clamp to [-1, 1] range and convert to 16-bit integer
-      const s = Math.max(-1, Math.min(1, float32Array[i]));
-      int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-    }
-    return int16Array;
-  };
-
-  const resampleTo24kHz = (inputBuffer: Float32Array, inputSampleRate: number): Float32Array => {
-    const targetSampleRate = 24000;
-    
-    // If already at target rate, return as-is
-    if (inputSampleRate === targetSampleRate) {
-      return inputBuffer;
-    }
-
-    // Calculate the ratio and output length
-    const ratio = inputSampleRate / targetSampleRate;
-    const outputLength = Math.floor(inputBuffer.length / ratio);
-    const output = new Float32Array(outputLength);
-
-    // Simple linear interpolation resampling
-    for (let i = 0; i < outputLength; i++) {
-      const sourceIndex = i * ratio;
-      const index1 = Math.floor(sourceIndex);
-      const index2 = Math.min(index1 + 1, inputBuffer.length - 1);
-      const fraction = sourceIndex - index1;
-      
-      // Linear interpolation between two samples
-      output[i] = inputBuffer[index1] * (1 - fraction) + inputBuffer[index2] * fraction;
-    }
-
-    console.log(`[VoiceMode] Resampled ${inputBuffer.length} samples @ ${inputSampleRate}Hz → ${output.length} samples @ ${targetSampleRate}Hz`);
-    return output;
-  };
-
-  const startRecording = async () => {
-    try {
-      console.log('[VoiceMode] Starting recording...');
-      
-      // Safety guard: Don't create duplicate recorders
-      if (audioWorkletNodeRef.current || scriptProcessorRef.current) {
-        console.warn('[VoiceMode] Audio processor already active, skipping startRecording');
-        return;
-      }
-
-      console.log('[VoiceMode] Requesting microphone access...');
+      // Request microphone access
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true,
-          sampleRate: 24000, // Request 24kHz for OpenAI Realtime API
-          channelCount: 1 // Mono audio
+          autoGainControl: true
         } 
       });
-      
+
       setHasPermission(true);
       hasPermissionRef.current = true;
-      mediaStreamRef.current = stream;
+      localStreamRef.current = stream;
 
-      // Create AudioContext at 24kHz if not already created
-      if (!audioContextRef.current) {
-        audioContextRef.current = new AudioContext({ sampleRate: 24000 });
-        console.log('[VoiceMode] AudioContext created, sampleRate:', audioContextRef.current.sampleRate);
-      }
+      // Create RTCPeerConnection
+      const peerConnection = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      });
 
-      // Verify we got 24kHz (some browsers might use a different rate)
-      const actualSampleRate = audioContextRef.current.sampleRate;
-      console.log('[VoiceMode] Actual AudioContext sample rate:', actualSampleRate);
-      
-      if (actualSampleRate !== 24000) {
-        console.warn('[VoiceMode] Sample rate mismatch! Expected 24000, got', actualSampleRate);
-        toast({
-          title: "Audio Configuration Warning",
-          description: `Browser is using ${actualSampleRate}Hz instead of 24kHz. Audio quality may vary.`,
-          variant: "default"
-        });
-      }
+      peerConnectionRef.current = peerConnection;
 
-      const source = audioContextRef.current.createMediaStreamSource(stream);
-      mediaSourceRef.current = source;
+      // Add local audio track
+      stream.getTracks().forEach(track => {
+        console.log('[WebRTC VoiceMode] Adding local track:', track.kind);
+        peerConnection.addTrack(track, stream);
+      });
 
-      // Try to use AudioWorklet first (modern approach)
-      let workletLoaded = false;
-      if (audioContextRef.current.audioWorklet) {
-        try {
-          await audioContextRef.current.audioWorklet.addModule('/audio-processor.js');
-          workletLoaded = true;
-          console.log('[VoiceMode] AudioWorklet loaded successfully');
-        } catch (error) {
-          console.warn('[VoiceMode] AudioWorklet failed to load, falling back to ScriptProcessor:', error);
+      // Handle ICE candidates
+      peerConnection.onicecandidate = (event) => {
+        if (event.candidate && wsRef.current?.readyState === WebSocket.OPEN) {
+          console.log('[WebRTC VoiceMode] Sending ICE candidate to backend');
+          wsRef.current.send(JSON.stringify({
+            type: 'ice-candidate',
+            candidate: event.candidate
+          }));
         }
-      }
+      };
 
-      if (workletLoaded && audioContextRef.current.audioWorklet) {
-        // Use AudioWorklet (preferred method)
-        const workletNode = new AudioWorkletNode(audioContextRef.current, 'pcm16-audio-processor');
-        audioWorkletNodeRef.current = workletNode;
-
-        workletNode.port.onmessage = (event) => {
-          if (event.data.type === 'audio' && wsRef.current?.readyState === WebSocket.OPEN) {
-            // Send PCM16 binary data directly to server
-            wsRef.current.send(event.data.data);
-          }
-        };
-
-        source.connect(workletNode);
-        // DO NOT connect to destination - causes audio feedback loop
-        // workletNode.connect(audioContextRef.current.destination);
+      // Handle remote audio track (from OpenAI assistant)
+      peerConnection.ontrack = (event) => {
+        console.log('[WebRTC VoiceMode] Received remote track:', event.track.kind);
         
-        console.log('[VoiceMode] Using AudioWorklet for audio capture');
-      } else {
-        // Fallback to ScriptProcessorNode (deprecated but widely supported)
-        const bufferSize = 2048;
-        const processor = audioContextRef.current.createScriptProcessor(bufferSize, 1, 1);
-        scriptProcessorRef.current = processor;
-
-        processor.onaudioprocess = (event) => {
-          const inputData = event.inputBuffer.getChannelData(0);
-          const inputSampleRate = audioContextRef.current!.sampleRate;
-          
-          // Resample to 24kHz if needed (critical for OpenAI Realtime API)
-          const resampled24kHz = resampleTo24kHz(inputData, inputSampleRate);
-          
-          // Convert Float32 to Int16 PCM
-          const pcm16Data = float32ToInt16(resampled24kHz);
-          
-          // Send to server
-          if (wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(pcm16Data.buffer);
+        if (event.track.kind === 'audio') {
+          // Create AudioContext for playback
+          if (!audioContextRef.current) {
+            audioContextRef.current = new AudioContext();
           }
-        };
 
-        source.connect(processor);
-        // DO NOT connect to destination - causes audio feedback loop
-        // processor.connect(audioContextRef.current.destination);
-        
-        console.log('[VoiceMode] Using ScriptProcessor for audio capture (fallback)');
+          // Create audio element for remote stream
+          const remoteAudio = new Audio();
+          remoteAudio.srcObject = event.streams[0];
+          remoteAudio.autoplay = true;
+          remoteAudioRef.current = remoteAudio;
+
+          // Play the audio
+          remoteAudio.play().catch(error => {
+            console.error('[WebRTC VoiceMode] Error playing remote audio:', error);
+          });
+
+          console.log('[WebRTC VoiceMode] Remote audio playback started');
+        }
+      };
+
+      // Create and send offer
+      const offer = await peerConnection.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: false
+      });
+
+      await peerConnection.setLocalDescription(offer);
+
+      // Send offer to backend via signaling WebSocket
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          type: 'offer',
+          sdp: offer.sdp
+        }));
+        console.log('[WebRTC VoiceMode] Sent offer to backend');
       }
 
       setState('listening');
       
     } catch (error: any) {
-      console.error('[VoiceMode] Microphone error:', error);
+      console.error('[WebRTC VoiceMode] WebRTC setup error:', error);
       setHasPermission(false);
       hasPermissionRef.current = false;
       
@@ -731,88 +329,50 @@ export function VoiceMode({
     }
   };
 
-  const stopRecording = (): Promise<void> => {
-    return new Promise((resolve) => {
-      try {
-        console.log('[VoiceMode] Stopping recording...');
-
-        // Disconnect and clean up audio nodes
-        if (audioWorkletNodeRef.current) {
-          audioWorkletNodeRef.current.disconnect();
-          audioWorkletNodeRef.current.port.onmessage = null;
-          audioWorkletNodeRef.current = null;
-          console.log('[VoiceMode] AudioWorklet node cleaned up');
-        }
-
-        if (scriptProcessorRef.current) {
-          scriptProcessorRef.current.disconnect();
-          scriptProcessorRef.current.onaudioprocess = null;
-          scriptProcessorRef.current = null;
-          console.log('[VoiceMode] ScriptProcessor node cleaned up');
-        }
-
-        if (mediaSourceRef.current) {
-          mediaSourceRef.current.disconnect();
-          mediaSourceRef.current = null;
-          console.log('[VoiceMode] MediaSource node cleaned up');
-        }
-
-        // Stop all media stream tracks to release microphone
-        if (mediaStreamRef.current) {
-          mediaStreamRef.current.getTracks().forEach(track => {
-            track.stop();
-            console.log('[VoiceMode] Stopped media track:', track.kind);
-          });
-          mediaStreamRef.current = null;
-        }
-
-        resolve();
-        
-      } catch (error) {
-        console.error('[VoiceMode] Error stopping recording:', error);
-        // Clean up on error
-        audioWorkletNodeRef.current = null;
-        scriptProcessorRef.current = null;
-        mediaSourceRef.current = null;
-        if (mediaStreamRef.current) {
-          mediaStreamRef.current.getTracks().forEach(track => track.stop());
-          mediaStreamRef.current = null;
-        }
-        resolve();
-      }
+  const handleInterrupt = () => {
+    console.log('[WebRTC VoiceMode] User interrupted! Sending cancel...');
+    
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'interrupt' }));
+    }
+    
+    currentAIMessageIdRef.current = null;
+    setState('listening');
+    
+    toast({
+      title: "Listening",
+      description: "Go ahead, I'm listening!",
+      duration: 1000
     });
   };
 
   const cleanup = () => {
-    console.log('[VoiceMode] Cleaning up resources...');
-    
-    // Disable auto-restart when cleaning up
-    shouldAutoRestartRef.current = false;
+    console.log('[WebRTC VoiceMode] Cleaning up resources...');
     
     try {
-      // Stop voice activity detection
-      stopVoiceActivityDetection();
-      
-      // Stop any ongoing audio playback
-      if (currentAudioSourceRef.current) {
-        try {
-          currentAudioSourceRef.current.stop();
-        } catch (e) {
-          // Source may already be stopped
-        }
-        currentAudioSourceRef.current = null;
+      // Stop remote audio
+      if (remoteAudioRef.current) {
+        remoteAudioRef.current.pause();
+        remoteAudioRef.current.srcObject = null;
+        remoteAudioRef.current = null;
       }
 
-      // Clear audio queue and chunk buffer
-      audioQueueRef.current = [];
-      audioChunkBufferRef.current = [];
-      isPlayingRef.current = false;
-      nextPlaybackTimeRef.current = 0;
+      // Close peer connection
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.close();
+        peerConnectionRef.current = null;
+      }
 
-      // Stop recording and release microphone
-      stopRecording();
+      // Stop local media stream
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => {
+          track.stop();
+          console.log('[WebRTC VoiceMode] Stopped media track:', track.kind);
+        });
+        localStreamRef.current = null;
+      }
 
-      // Close WebSocket connection
+      // Close WebSocket
       if (wsRef.current) {
         if (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING) {
           wsRef.current.close();
@@ -820,15 +380,13 @@ export function VoiceMode({
         wsRef.current = null;
       }
 
-      // Suspend and close audio context to release audio resources
-      if (audioContextRef.current) {
-        if (audioContextRef.current.state !== 'closed') {
-          audioContextRef.current.close().then(() => {
-            console.log('[VoiceMode] AudioContext closed');
-          }).catch((error) => {
-            console.error('[VoiceMode] Error closing AudioContext:', error);
-          });
-        }
+      // Close AudioContext
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        audioContextRef.current.close().then(() => {
+          console.log('[WebRTC VoiceMode] AudioContext closed');
+        }).catch((error) => {
+          console.error('[WebRTC VoiceMode] Error closing AudioContext:', error);
+        });
         audioContextRef.current = null;
       }
 
@@ -840,9 +398,9 @@ export function VoiceMode({
       isOnlineRef.current = false;
       setIsConnecting(false);
 
-      console.log('[VoiceMode] Cleanup complete');
+      console.log('[WebRTC VoiceMode] Cleanup complete');
     } catch (error) {
-      console.error('[VoiceMode] Error during cleanup:', error);
+      console.error('[WebRTC VoiceMode] Error during cleanup:', error);
     }
   };
 
@@ -915,6 +473,7 @@ export function VoiceMode({
             size="icon"
             onClick={handleClose}
             className="text-gray-600 hover:text-gray-900"
+            data-testid="button-close-voice"
           >
             <X className="w-6 h-6" />
           </Button>
@@ -940,9 +499,9 @@ export function VoiceMode({
               }}
               onClick={async () => {
                 if (state === 'idle' && isOnline && !isConnecting) {
-                  shouldAutoRestartRef.current = true;
-                  setState('listening');
-                  await startRecording();
+                  await setupWebRTC();
+                } else if (state === 'speaking') {
+                  handleInterrupt();
                 }
               }}
               data-testid="voice-orb"
@@ -955,7 +514,7 @@ export function VoiceMode({
                 }}
               />
 
-              {/* Content inside circle - Beautiful and Classy */}
+              {/* Content inside circle */}
               <motion.div 
                 className="relative z-10 flex flex-col items-center justify-center gap-4"
                 animate={{
