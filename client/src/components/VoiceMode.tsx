@@ -428,8 +428,8 @@ export function VoiceMode({
       // Monitor audio levels to detect user speech
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
       const VOICE_THRESHOLD = 70; // Increased to reduce false positives from background noise/echo
-      const SILENCE_FRAMES_NEEDED = 6; // Increased debounce to prevent accidental interruptions
-      let silenceFrames = SILENCE_FRAMES_NEEDED;
+      const SPEECH_FRAMES_NEEDED = 6; // Require 600ms of sustained speech before interrupting
+      let consecutiveSpeechFrames = 0;
       
       vadIntervalRef.current = setInterval(() => {
         // Use ref to check state (avoid closure issues)
@@ -444,11 +444,18 @@ export function VoiceMode({
         const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
         
         if (average > VOICE_THRESHOLD) {
-          silenceFrames = 0; // Reset debounce
-          // User is speaking! Interrupt AI
-          handleInterruption();
+          // Loud sound detected - increment counter
+          consecutiveSpeechFrames++;
+          
+          // Only interrupt if we've had sustained speech for enough frames
+          if (consecutiveSpeechFrames >= SPEECH_FRAMES_NEEDED) {
+            // User is speaking! Interrupt AI
+            handleInterruption();
+            consecutiveSpeechFrames = 0; // Reset to prevent multiple triggers
+          }
         } else {
-          silenceFrames++;
+          // Below threshold - reset counter (false positive or brief noise)
+          consecutiveSpeechFrames = 0;
         }
       }, 100); // Check every 100ms
       
