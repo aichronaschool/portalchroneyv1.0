@@ -60,6 +60,8 @@ export function VoiceMode({
   const stateRef = useRef(state); // Mutable ref for VAD to check current state
   const bufferedTranscriptRef = useRef<{text: string, isFinal: boolean} | null>(null); // Buffer transcripts during interrupt
   const audioWorkletNodeRef = useRef<AudioWorkletNode | null>(null); // For capturing raw PCM audio
+  const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null); // Fallback for older browsers
+  const mediaSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const { toast } = useToast();
   
   // Keep stateRef in sync with state
@@ -262,8 +264,7 @@ export function VoiceMode({
           return;
         }
         
-        // AI finished speaking - flush any remaining audio chunks
-        await processBatchedAudioChunks();
+        // AI finished speaking
         currentAIMessageIdRef.current = null;
         
         // Stop voice activity detection
@@ -344,130 +345,44 @@ export function VoiceMode({
       }
       
       if (!audioContextRef.current) {
-        // Let browser use its default sample rate (usually 48000 Hz)
-        // It will automatically resample our 24kHz audio
-        audioContextRef.current = new AudioContext();
-        console.log('[VoiceMode] AudioContext created, sampleRate:', audioContextRef.current.sampleRate);
+        // Create AudioContext at 24kHz to match OpenAI's output
+        audioContextRef.current = new AudioContext({ sampleRate: 24000 });
+        console.log('[VoiceMode] AudioContext created for playback, sampleRate:', audioContextRef.current.sampleRate);
       }
 
-      // Accumulate chunks for batch decoding (reduces artifacts from tiny buffers)
-      audioChunkBufferRef.current.push(new Uint8Array(arrayBuffer));
+      // OpenAI sends PCM16 (Int16Array) audio at 24kHz
+      // Convert raw bytes to Int16Array
+      const pcm16Data = new Int16Array(arrayBuffer);
       
-      // Batch decode every 5 chunks (~100-200ms of audio) for faster playback
-      const BATCH_SIZE = 5;
-      if (audioChunkBufferRef.current.length >= BATCH_SIZE) {
-        await processBatchedAudioChunks();
+      // Convert Int16 PCM to Float32 for Web Audio API
+      const float32Data = new Float32Array(pcm16Data.length);
+      for (let i = 0; i < pcm16Data.length; i++) {
+        // Convert from Int16 [-32768, 32767] to Float32 [-1, 1]
+        float32Data[i] = pcm16Data[i] / (pcm16Data[i] < 0 ? 32768 : 32767);
+      }
+
+      // Create AudioBuffer at 24kHz (matching OpenAI's output)
+      const audioBuffer = audioContextRef.current.createBuffer(
+        1, // Mono
+        float32Data.length,
+        24000 // Sample rate: 24kHz
+      );
+      
+      // Copy Float32 data into buffer
+      audioBuffer.getChannelData(0).set(float32Data);
+
+      // Add to queue for playback
+      audioQueueRef.current.push(audioBuffer);
+
+      // Start playback if not already playing
+      if (!isPlayingRef.current) {
+        playNextAudioChunk();
       }
     } catch (error) {
       console.error('[VoiceMode] Audio chunk handling error:', error);
     }
   };
 
-  const processBatchedAudioChunks = async () => {
-    if (audioChunkBufferRef.current.length === 0 || !audioContextRef.current) {
-      return;
-    }
-    
-    // Drop buffered audio if we're pending an interrupt
-    if (pendingInterruptRef.current) {
-      console.log('[VoiceMode] Dropping buffered audio - interrupt pending');
-      audioChunkBufferRef.current = [];
-      return;
-    }
-
-    try {
-      // Combine all buffered chunks into one larger buffer
-      const totalLength = audioChunkBufferRef.current.reduce((sum, chunk) => sum + chunk.length, 0);
-      const combinedBuffer = new Uint8Array(totalLength);
-      let offset = 0;
-      
-      for (const chunk of audioChunkBufferRef.current) {
-        combinedBuffer.set(chunk, offset);
-        offset += chunk.length;
-      }
-      
-      console.log('[VoiceMode] Decoding batched audio, size:', combinedBuffer.length, 'chunks:', audioChunkBufferRef.current.length);
-      
-      // Clear the buffer
-      audioChunkBufferRef.current = [];
-      
-      // Decode the combined audio data
-      const audioBuffer = await decodeLinearPCM(combinedBuffer.buffer, audioContextRef.current);
-      
-      // Check again after async decode - interrupt may have occurred
-      if (pendingInterruptRef.current) {
-        console.log('[VoiceMode] Dropping decoded audio - interrupt occurred during decode');
-        return;
-      }
-      
-      console.log('[VoiceMode] Decoded audio buffer, duration:', audioBuffer.duration, 'sampleRate:', audioBuffer.sampleRate);
-      
-      // Add to playback queue
-      audioQueueRef.current.push(audioBuffer);
-      
-      // Start playback if not already playing
-      if (!isPlayingRef.current) {
-        playNextAudioChunk();
-      }
-    } catch (error) {
-      console.error('[VoiceMode] Batch audio decode error:', error);
-    }
-  };
-
-  const createWavHeader = (dataLength: number, sampleRate: number): ArrayBuffer => {
-    const buffer = new ArrayBuffer(44);
-    const view = new DataView(buffer);
-    
-    // "RIFF" chunk descriptor
-    view.setUint32(0, 0x52494646, false); // "RIFF"
-    view.setUint32(4, 36 + dataLength, true); // File size - 8
-    view.setUint32(8, 0x57415645, false); // "WAVE"
-    
-    // "fmt " sub-chunk
-    view.setUint32(12, 0x666d7420, false); // "fmt "
-    view.setUint32(16, 16, true); // Subchunk size
-    view.setUint16(20, 1, true); // Audio format (1 = PCM)
-    view.setUint16(22, 1, true); // Number of channels (1 = mono)
-    view.setUint32(24, sampleRate, true); // Sample rate
-    view.setUint32(28, sampleRate * 2, true); // Byte rate
-    view.setUint16(32, 2, true); // Block align
-    view.setUint16(34, 16, true); // Bits per sample
-    
-    // "data" sub-chunk
-    view.setUint32(36, 0x64617461, false); // "data"
-    view.setUint32(40, dataLength, true); // Data size
-    
-    return buffer;
-  };
-
-  const decodeLinearPCM = async (arrayBuffer: ArrayBuffer, audioContext: AudioContext): Promise<AudioBuffer> => {
-    // Create WAV file with header for proper browser decoding (48kHz for smooth playback)
-    const wavHeader = createWavHeader(arrayBuffer.byteLength, 48000);
-    
-    // Combine WAV header + PCM data
-    const wavFile = new Uint8Array(wavHeader.byteLength + arrayBuffer.byteLength);
-    wavFile.set(new Uint8Array(wavHeader), 0);
-    wavFile.set(new Uint8Array(arrayBuffer), wavHeader.byteLength);
-    
-    // Use browser's native audio decoder
-    try {
-      return await audioContext.decodeAudioData(wavFile.buffer);
-    } catch (error) {
-      console.error('[VoiceMode] DecodeAudioData failed, falling back to manual decode:', error);
-      // Fallback to manual decoding if native fails
-      const dataView = new DataView(arrayBuffer);
-      const samples = new Float32Array(arrayBuffer.byteLength / 2);
-      
-      for (let i = 0; i < samples.length; i++) {
-        const int16 = dataView.getInt16(i * 2, true);
-        samples[i] = int16 / 32768.0;
-      }
-      
-      const audioBuffer = audioContext.createBuffer(1, samples.length, 48000);
-      audioBuffer.getChannelData(0).set(samples);
-      return audioBuffer;
-    }
-  };
 
   // Voice Activity Detection for interruption handling
   const startVoiceActivityDetection = () => {
@@ -612,13 +527,26 @@ export function VoiceMode({
     nextPlaybackTimeRef.current = scheduleTime + audioBuffer.duration;
   };
 
+  /**
+   * Convert Float32 audio samples to Int16 PCM format
+   */
+  const float32ToInt16 = (float32Array: Float32Array): Int16Array => {
+    const int16Array = new Int16Array(float32Array.length);
+    for (let i = 0; i < float32Array.length; i++) {
+      // Clamp to [-1, 1] range and convert to 16-bit integer
+      const s = Math.max(-1, Math.min(1, float32Array[i]));
+      int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+    return int16Array;
+  };
+
   const startRecording = async () => {
     try {
       console.log('[VoiceMode] Starting recording...');
       
       // Safety guard: Don't create duplicate recorders
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-        console.warn('[VoiceMode] MediaRecorder already active, skipping startRecording');
+      if (audioWorkletNodeRef.current || scriptProcessorRef.current) {
+        console.warn('[VoiceMode] Audio processor already active, skipping startRecording');
         return;
       }
 
@@ -628,7 +556,8 @@ export function VoiceMode({
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
-          sampleRate: 24000 // OpenAI Realtime API uses 24kHz
+          sampleRate: 24000, // Request 24kHz for OpenAI Realtime API
+          channelCount: 1 // Mono audio
         } 
       });
       
@@ -636,40 +565,81 @@ export function VoiceMode({
       hasPermissionRef.current = true;
       mediaStreamRef.current = stream;
 
-      // OpenAI Realtime API requires PCM16 audio at 24kHz
-      // Use MediaRecorder with webm/opus (browser native), backend will handle the format
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm;codecs=opus'
-      });
+      // Create AudioContext at 24kHz if not already created
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioContext({ sampleRate: 24000 });
+        console.log('[VoiceMode] AudioContext created, sampleRate:', audioContextRef.current.sampleRate);
+      }
+
+      // Verify we got 24kHz (some browsers might use a different rate)
+      const actualSampleRate = audioContextRef.current.sampleRate;
+      console.log('[VoiceMode] Actual AudioContext sample rate:', actualSampleRate);
       
-      mediaRecorderRef.current = mediaRecorder;
+      if (actualSampleRate !== 24000) {
+        console.warn('[VoiceMode] Sample rate mismatch! Expected 24000, got', actualSampleRate);
+        toast({
+          title: "Audio Configuration Warning",
+          description: `Browser is using ${actualSampleRate}Hz instead of 24kHz. Audio quality may vary.`,
+          variant: "default"
+        });
+      }
 
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
-          // Send audio chunks to WebSocket (backend will convert to PCM16 for OpenAI)
-          wsRef.current.send(event.data);
+      const source = audioContextRef.current.createMediaStreamSource(stream);
+      mediaSourceRef.current = source;
+
+      // Try to use AudioWorklet first (modern approach)
+      let workletLoaded = false;
+      if (audioContextRef.current.audioWorklet) {
+        try {
+          await audioContextRef.current.audioWorklet.addModule('/audio-processor.js');
+          workletLoaded = true;
+          console.log('[VoiceMode] AudioWorklet loaded successfully');
+        } catch (error) {
+          console.warn('[VoiceMode] AudioWorklet failed to load, falling back to ScriptProcessor:', error);
         }
-      };
+      }
 
-      mediaRecorder.onstart = () => {
-        setState('listening');
-      };
+      if (workletLoaded && audioContextRef.current.audioWorklet) {
+        // Use AudioWorklet (preferred method)
+        const workletNode = new AudioWorkletNode(audioContextRef.current, 'pcm16-audio-processor');
+        audioWorkletNodeRef.current = workletNode;
 
-      mediaRecorder.onstop = () => {
-        // Stop all tracks when recording stops
-        if (mediaStreamRef.current) {
-          mediaStreamRef.current.getTracks().forEach(track => track.stop());
-          mediaStreamRef.current = null;
-        }
-      };
+        workletNode.port.onmessage = (event) => {
+          if (event.data.type === 'audio' && wsRef.current?.readyState === WebSocket.OPEN) {
+            // Send PCM16 binary data directly to server
+            wsRef.current.send(event.data.data);
+          }
+        };
 
-      mediaRecorder.onerror = (error) => {
-        console.error('[VoiceMode] MediaRecorder error:', error);
-        stopRecording();
-      };
+        source.connect(workletNode);
+        workletNode.connect(audioContextRef.current.destination); // Also output to speakers for monitoring (optional)
+        
+        console.log('[VoiceMode] Using AudioWorklet for audio capture');
+      } else {
+        // Fallback to ScriptProcessorNode (deprecated but widely supported)
+        const bufferSize = 2048;
+        const processor = audioContextRef.current.createScriptProcessor(bufferSize, 1, 1);
+        scriptProcessorRef.current = processor;
 
-      // Start recording with timeslice for streaming
-      mediaRecorder.start(50); // Send chunks every 50ms for faster streaming
+        processor.onaudioprocess = (event) => {
+          const inputData = event.inputBuffer.getChannelData(0);
+          
+          // Convert Float32 to Int16 PCM
+          const pcm16Data = float32ToInt16(inputData);
+          
+          // Send to server
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(pcm16Data.buffer);
+          }
+        };
+
+        source.connect(processor);
+        processor.connect(audioContextRef.current.destination);
+        
+        console.log('[VoiceMode] Using ScriptProcessor for audio capture (fallback)');
+      }
+
+      setState('listening');
       
     } catch (error: any) {
       console.error('[VoiceMode] Microphone error:', error);
@@ -695,47 +665,46 @@ export function VoiceMode({
   const stopRecording = (): Promise<void> => {
     return new Promise((resolve) => {
       try {
-        const recorder = mediaRecorderRef.current;
-        
-        // If no recorder or not recording, resolve immediately
-        if (!recorder || recorder.state !== 'recording') {
-          // Still clean up media stream
-          if (mediaStreamRef.current) {
-            mediaStreamRef.current.getTracks().forEach(track => {
-              track.stop();
-              console.log('[VoiceMode] Stopped media track:', track.kind);
-            });
-            mediaStreamRef.current = null;
-          }
-          mediaRecorderRef.current = null;
-          resolve();
-          return;
+        console.log('[VoiceMode] Stopping recording...');
+
+        // Disconnect and clean up audio nodes
+        if (audioWorkletNodeRef.current) {
+          audioWorkletNodeRef.current.disconnect();
+          audioWorkletNodeRef.current.port.onmessage = null;
+          audioWorkletNodeRef.current = null;
+          console.log('[VoiceMode] AudioWorklet node cleaned up');
         }
 
-        // Set up onstop handler before stopping
-        recorder.onstop = () => {
-          console.log('[VoiceMode] MediaRecorder stopped');
-          
-          // Stop all media stream tracks to release microphone
-          if (mediaStreamRef.current) {
-            mediaStreamRef.current.getTracks().forEach(track => {
-              track.stop();
-              console.log('[VoiceMode] Stopped media track:', track.kind);
-            });
-            mediaStreamRef.current = null;
-          }
-          
-          mediaRecorderRef.current = null;
-          resolve();
-        };
+        if (scriptProcessorRef.current) {
+          scriptProcessorRef.current.disconnect();
+          scriptProcessorRef.current.onaudioprocess = null;
+          scriptProcessorRef.current = null;
+          console.log('[VoiceMode] ScriptProcessor node cleaned up');
+        }
 
-        // Stop the recorder (triggers onstop)
-        recorder.stop();
+        if (mediaSourceRef.current) {
+          mediaSourceRef.current.disconnect();
+          mediaSourceRef.current = null;
+          console.log('[VoiceMode] MediaSource node cleaned up');
+        }
+
+        // Stop all media stream tracks to release microphone
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach(track => {
+            track.stop();
+            console.log('[VoiceMode] Stopped media track:', track.kind);
+          });
+          mediaStreamRef.current = null;
+        }
+
+        resolve();
         
       } catch (error) {
         console.error('[VoiceMode] Error stopping recording:', error);
         // Clean up on error
-        mediaRecorderRef.current = null;
+        audioWorkletNodeRef.current = null;
+        scriptProcessorRef.current = null;
+        mediaSourceRef.current = null;
         if (mediaStreamRef.current) {
           mediaStreamRef.current.getTracks().forEach(track => track.stop());
           mediaStreamRef.current = null;

@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Eye, EyeOff, Key, DollarSign, Building2, Mic } from "lucide-react";
+import { Eye, EyeOff, Key, DollarSign, Building2 } from "lucide-react";
 
 const CURRENCY_OPTIONS = [
   { value: "USD", label: "USD - US Dollar" },
@@ -46,8 +46,6 @@ interface ApiSettings {
   businessName: string;
   openaiApiKey: string | null;
   hasOpenAIKey: boolean;
-  deepgramApiKey: string | null;
-  hasDeepgramKey: boolean;
   currency: string;
 }
 
@@ -55,7 +53,6 @@ export default function SuperAdminApiKeys() {
   const { toast } = useToast();
   const [selectedBusinessId, setSelectedBusinessId] = useState<string>("");
   const [showOpenAIKey, setShowOpenAIKey] = useState(false);
-  const [showDeepgramKey, setShowDeepgramKey] = useState(false);
 
   const { data: businessAccounts = [] } = useQuery<BusinessAccount[]>({
     queryKey: ["/api/business-accounts"],
@@ -73,13 +70,6 @@ export default function SuperAdminApiKeys() {
     },
   });
 
-  const deepgramKeyForm = useForm<ApiKeyFormData>({
-    resolver: zodResolver(apiKeySchema),
-    defaultValues: {
-      openaiApiKey: "",
-    },
-  });
-
   const currencyForm = useForm<CurrencyFormData>({
     resolver: zodResolver(currencySchema),
     defaultValues: {
@@ -91,7 +81,6 @@ export default function SuperAdminApiKeys() {
     if (apiSettings) {
       currencyForm.reset({ currency: apiSettings.currency || "USD" });
       openAIKeyForm.reset({ openaiApiKey: "" });
-      deepgramKeyForm.reset({ openaiApiKey: "" });
     }
   }, [apiSettings]);
 
@@ -126,35 +115,6 @@ export default function SuperAdminApiKeys() {
     },
   });
 
-  const updateDeepgramKeyMutation = useMutation({
-    mutationFn: async (data: ApiKeyFormData) => {
-      const payload: any = {};
-      if (data.openaiApiKey && data.openaiApiKey.trim()) {
-        payload.deepgramApiKey = data.openaiApiKey.trim();
-      }
-      if (Object.keys(payload).length === 0) {
-        throw new Error("Please enter an API key to update");
-      }
-      return apiRequest("PATCH", `/api/business-accounts/${selectedBusinessId}/api-settings`, payload);
-    },
-    onSuccess: () => {
-      toast({
-        title: "Success",
-        description: "Deepgram API key updated successfully",
-      });
-      queryClient.invalidateQueries({ 
-        queryKey: ["/api/business-accounts", selectedBusinessId, "api-settings"] 
-      });
-      deepgramKeyForm.reset({ openaiApiKey: "" });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update Deepgram API key",
-        variant: "destructive",
-      });
-    },
-  });
 
   const updateCurrencyMutation = useMutation({
     mutationFn: async (data: CurrencyFormData) => {
@@ -190,17 +150,6 @@ export default function SuperAdminApiKeys() {
     updateOpenAIKeyMutation.mutate(data);
   });
 
-  const handleDeepgramKeySubmit = deepgramKeyForm.handleSubmit((data) => {
-    if (!selectedBusinessId) {
-      toast({
-        title: "Error",
-        description: "Please select a business account first",
-        variant: "destructive",
-      });
-      return;
-    }
-    updateDeepgramKeyMutation.mutate(data);
-  });
 
   const handleCurrencySubmit = currencyForm.handleSubmit((data) => {
     if (!selectedBusinessId) {
@@ -219,7 +168,7 @@ export default function SuperAdminApiKeys() {
       <div className="space-y-2">
         <h1 className="text-3xl font-semibold tracking-tight">API Keys & Settings</h1>
         <p className="text-muted-foreground">
-          Manage OpenAI, Deepgram API keys and currency settings for business accounts
+          Manage OpenAI API keys and currency settings for business accounts
         </p>
       </div>
 
@@ -312,72 +261,6 @@ export default function SuperAdminApiKeys() {
                   data-testid="button-save-openai-key"
                 >
                   {updateOpenAIKeyMutation.isPending ? "Saving..." : apiSettingsLoading ? "Loading..." : "Save API Key"}
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Mic className="w-5 h-5" />
-                Deepgram API Key
-              </CardTitle>
-              <CardDescription>
-                Configure the Deepgram API key for voice mode features
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {apiSettings?.hasDeepgramKey && (
-                <div className="p-4 bg-muted rounded-md space-y-2">
-                  <p className="text-sm font-medium">Current API Key</p>
-                  <p className="text-sm font-mono text-muted-foreground">
-                    {apiSettings.deepgramApiKey}
-                  </p>
-                </div>
-              )}
-
-              <form onSubmit={handleDeepgramKeySubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="deepgramApiKey">
-                    {apiSettings?.hasDeepgramKey ? "New API Key (leave blank to keep existing)" : "API Key"}
-                  </Label>
-                  <div className="relative">
-                    <Input
-                      id="deepgramApiKey"
-                      type={showDeepgramKey ? "text" : "password"}
-                      placeholder="Enter Deepgram API key..."
-                      data-testid="input-deepgram-api-key"
-                      {...deepgramKeyForm.register("openaiApiKey")}
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="absolute right-0 top-0 h-full"
-                      onClick={() => setShowDeepgramKey(!showDeepgramKey)}
-                      data-testid="button-toggle-deepgram-key-visibility"
-                    >
-                      {showDeepgramKey ? (
-                        <EyeOff className="w-4 h-4" />
-                      ) : (
-                        <Eye className="w-4 h-4" />
-                      )}
-                    </Button>
-                  </div>
-                  {deepgramKeyForm.formState.errors.openaiApiKey && (
-                    <p className="text-sm text-destructive">
-                      {deepgramKeyForm.formState.errors.openaiApiKey.message}
-                    </p>
-                  )}
-                </div>
-
-                <Button
-                  type="submit"
-                  disabled={updateDeepgramKeyMutation.isPending || apiSettingsLoading}
-                  data-testid="button-save-deepgram-key"
-                >
-                  {updateDeepgramKeyMutation.isPending ? "Saving..." : apiSettingsLoading ? "Loading..." : "Save API Key"}
                 </Button>
               </form>
             </CardContent>
