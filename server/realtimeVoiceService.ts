@@ -179,14 +179,23 @@ export class RealtimeVoiceService {
       instructions += 'Be casual, fun, and engaging. ';
     }
 
+    // CRITICAL GUARDRAILS
+    instructions += '\n\nGUARDRAILS (MUST FOLLOW):\n';
+    instructions += '- ONLY answer questions related to this business\'s products, services, pricing, FAQs, and company information\n';
+    instructions += '- DECLINE politely if asked about unrelated topics (world events, general knowledge, entertainment, sports, history, science, politics, health advice, financial advice)\n';
+    instructions += '- When declining, keep it SHORT (1 sentence), friendly, and redirect to what you CAN help with\n';
+    instructions += '- Example decline: "I focus on helping with our products and services. What can I tell you about what we offer?"\n';
+    instructions += '- NEVER provide medical, legal, or financial advice\n';
+    instructions += '- NEVER expose internal operations or backend processes\n';
+
     // Add voice-specific instructions
-    instructions += '\n\nIMPORTANT VOICE MODE GUIDELINES:\n';
+    instructions += '\n\nVOICE MODE GUIDELINES:\n';
     instructions += '- Keep responses concise and conversational (2-3 sentences max)\n';
     instructions += '- Speak naturally as if having a phone conversation\n';
     instructions += '- Avoid long lists or technical jargon\n';
     instructions += '- Use contractions and casual language\n';
     instructions += '- Never use emojis or special characters in voice responses\n';
-    instructions += '- If asked about products, mention 1-2 top recommendations\n';
+    instructions += '- If asked about products, mention 1-2 top recommendations and ask if they want details\n';
 
     // Add custom instructions
     if (customInstructions) {
