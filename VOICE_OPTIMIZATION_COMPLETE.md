@@ -13,6 +13,8 @@ Complete rewrite of the voice mode pipeline using ONLY OpenAI Realtime API suppo
 5. **Missing response creation** - Never explicitly requesting assistant to speak
 6. **No turn signaling** - Not committing audio buffer when user stops speaking
 7. **Poor cleanup** - Output worklet not stopped on disconnect
+8. **Buffer flush timing** - Not flushing buffer before committing
+9. **Empty buffer commits** - Committing when no audio was sent (OpenAI VAD false positives)
 
 ## New Optimized Architecture
 
@@ -52,8 +54,11 @@ Complete rewrite of the voice mode pipeline using ONLY OpenAI Realtime API suppo
 - **20ms flush intervals** - Batches audio efficiently
 - **Binary streaming** - Receives binary PCM16, sends base64 to OpenAI
 - **Explicit turn management**:
+  - Flushes buffer before committing (prevents truncation)
+  - Only commits if audio was sent in current turn (prevents empty buffer errors)
   - Sends `input_audio_buffer.commit` when user stops speaking
   - Sends `response.create` to trigger assistant response
+  - Tracks `hasAudioInCurrentTurn` flag to prevent OpenAI VAD false positives
 - **Cleanup signaling** - Notifies client to stop playback
 - **Optimized event handling** - Proper transcript and audio delta parsing
 

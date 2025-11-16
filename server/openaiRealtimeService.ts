@@ -17,6 +17,7 @@ interface VoiceConnection {
   isConnected: boolean;
   audioBuffer: Buffer[];
   lastFlush: number;
+  hasAudioInCurrentTurn: boolean; // Track if we've sent any audio in current turn
 }
 
 class OpenAIRealtimeService {
@@ -64,7 +65,8 @@ class OpenAIRealtimeService {
       userId,
       isConnected: false,
       audioBuffer: [],
-      lastFlush: Date.now()
+      lastFlush: Date.now(),
+      hasAudioInCurrentTurn: false
     };
 
     this.connections.set(connectionKey, connection);
@@ -281,6 +283,9 @@ class OpenAIRealtimeService {
       audio: base64Audio
     }));
 
+    // Mark that we've sent audio in this turn
+    connection.hasAudioInCurrentTurn = true;
+
     // Clear buffer
     connection.audioBuffer = [];
     connection.lastFlush = Date.now();
@@ -316,21 +321,31 @@ class OpenAIRealtimeService {
 
         case 'input_audio_buffer.speech_stopped':
           // User stopped speaking - flush buffered audio, then commit and request response
-          console.log('[OpenAI Realtime] User stopped speaking, flushing buffer and creating response');
+          console.log('[OpenAI Realtime] User stopped speaking');
           if (connection.openaiWs && connection.openaiWs.readyState === WebSocket.OPEN) {
             // CRITICAL: Flush any remaining buffered audio BEFORE committing
             // This ensures all user speech is sent before we signal end-of-turn
             this.flushAudioBuffer(connection);
             
-            // Now commit the audio buffer (signals end of user turn)
-            connection.openaiWs.send(JSON.stringify({
-              type: 'input_audio_buffer.commit'
-            }));
-            
-            // Request assistant response
-            connection.openaiWs.send(JSON.stringify({
-              type: 'response.create'
-            }));
+            // Only commit and create response if we actually have audio in this turn
+            if (connection.hasAudioInCurrentTurn) {
+              console.log('[OpenAI Realtime] Committing audio buffer and creating response');
+              
+              // Commit the audio buffer (signals end of user turn)
+              connection.openaiWs.send(JSON.stringify({
+                type: 'input_audio_buffer.commit'
+              }));
+              
+              // Request assistant response
+              connection.openaiWs.send(JSON.stringify({
+                type: 'response.create'
+              }));
+              
+              // Reset the flag for next turn
+              connection.hasAudioInCurrentTurn = false;
+            } else {
+              console.log('[OpenAI Realtime] No audio in current turn, skipping commit');
+            }
           }
           break;
 
