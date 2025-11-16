@@ -360,16 +360,27 @@ export class RealtimeVoiceService {
 
     switch (message.type) {
       case 'interrupt':
-        // User interrupted AI - cancel current response
+        // User interrupted AI - cancel current response and clear audio buffer
         console.log('[RealtimeVoice] User interrupted AI');
         
         if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+          // Cancel any in-progress response
           openaiWs.send(JSON.stringify({
             type: 'response.cancel'
           }));
+          
+          // Clear the input audio buffer to prevent stale audio from being processed
+          openaiWs.send(JSON.stringify({
+            type: 'input_audio_buffer.clear'
+          }));
+          
+          console.log('[RealtimeVoice] Sent response.cancel and buffer.clear to OpenAI');
         }
         
         conversation.isProcessing = false;
+        
+        // Acknowledge interrupt to client
+        this.sendToClient(conversation.clientWs, { type: 'interrupt_ack' });
         break;
 
       case 'commit_audio':

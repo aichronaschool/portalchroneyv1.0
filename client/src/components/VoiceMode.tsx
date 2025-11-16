@@ -354,6 +354,13 @@ export function VoiceMode({
       // Convert raw bytes to Int16Array
       const pcm16Data = new Int16Array(arrayBuffer);
       
+      // Validate expected sample count (should be ~0.2s chunks at 24kHz = ~4800 samples)
+      const expectedSamplesPerChunk = 4800; // 0.2s * 24000Hz
+      const tolerance = 0.2; // Allow 20% variance
+      if (Math.abs(pcm16Data.length - expectedSamplesPerChunk) > expectedSamplesPerChunk * tolerance) {
+        console.warn(`[VoiceMode] Unexpected sample count: ${pcm16Data.length} (expected ~${expectedSamplesPerChunk})`);
+      }
+      
       // Convert Int16 PCM to Float32 for Web Audio API
       const float32Data = new Float32Array(pcm16Data.length);
       for (let i = 0; i < pcm16Data.length; i++) {
@@ -367,6 +374,11 @@ export function VoiceMode({
         float32Data.length,
         24000 // Sample rate: 24kHz
       );
+      
+      // Validate audio buffer sample rate matches expected 24kHz
+      if (audioBuffer.sampleRate !== 24000) {
+        console.error(`[VoiceMode] Sample rate mismatch: ${audioBuffer.sampleRate}Hz (expected 24000Hz)`);
+      }
       
       // Copy Float32 data into buffer
       audioBuffer.getChannelData(0).set(float32Data);
@@ -506,15 +518,34 @@ export function VoiceMode({
     
     if (!audioContextRef.current) return;
 
+    const currentTime = audioContextRef.current.currentTime;
+    
+    // Initialize nextPlaybackTime if this is the first chunk
+    if (nextPlaybackTimeRef.current === 0) {
+      nextPlaybackTimeRef.current = currentTime;
+    }
+    
+    // Check if this chunk is late (would overlap with current playback)
+    if (nextPlaybackTimeRef.current < currentTime) {
+      const latency = currentTime - nextPlaybackTimeRef.current;
+      console.warn(`[VoiceMode] Late audio chunk detected, latency: ${(latency * 1000).toFixed(0)}ms - dropping chunk to prevent overlap`);
+      
+      // Drop this chunk and reset playback time to current time
+      nextPlaybackTimeRef.current = currentTime;
+      
+      // Try next chunk immediately
+      playNextAudioChunk();
+      return;
+    }
+
     const source = audioContextRef.current.createBufferSource();
     source.buffer = audioBuffer;
     source.connect(audioContextRef.current.destination);
     
     currentAudioSourceRef.current = source;
     
-    // Schedule playback at precise time to avoid gaps
-    const currentTime = audioContextRef.current.currentTime;
-    const scheduleTime = Math.max(currentTime, nextPlaybackTimeRef.current);
+    // Always schedule at nextPlaybackTime (monotonically increasing)
+    const scheduleTime = nextPlaybackTimeRef.current;
     
     source.onended = () => {
       currentAudioSourceRef.current = null;
@@ -523,7 +554,7 @@ export function VoiceMode({
 
     source.start(scheduleTime);
     
-    // Advance playback time for next chunk
+    // Always advance playback time monotonically (never go backwards)
     nextPlaybackTimeRef.current = scheduleTime + audioBuffer.duration;
   };
 
@@ -538,6 +569,34 @@ export function VoiceMode({
       int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
     }
     return int16Array;
+  };
+
+  const resampleTo24kHz = (inputBuffer: Float32Array, inputSampleRate: number): Float32Array => {
+    const targetSampleRate = 24000;
+    
+    // If already at target rate, return as-is
+    if (inputSampleRate === targetSampleRate) {
+      return inputBuffer;
+    }
+
+    // Calculate the ratio and output length
+    const ratio = inputSampleRate / targetSampleRate;
+    const outputLength = Math.floor(inputBuffer.length / ratio);
+    const output = new Float32Array(outputLength);
+
+    // Simple linear interpolation resampling
+    for (let i = 0; i < outputLength; i++) {
+      const sourceIndex = i * ratio;
+      const index1 = Math.floor(sourceIndex);
+      const index2 = Math.min(index1 + 1, inputBuffer.length - 1);
+      const fraction = sourceIndex - index1;
+      
+      // Linear interpolation between two samples
+      output[i] = inputBuffer[index1] * (1 - fraction) + inputBuffer[index2] * fraction;
+    }
+
+    console.log(`[VoiceMode] Resampled ${inputBuffer.length} samples @ ${inputSampleRate}Hz → ${output.length} samples @ ${targetSampleRate}Hz`);
+    return output;
   };
 
   const startRecording = async () => {
@@ -623,9 +682,13 @@ export function VoiceMode({
 
         processor.onaudioprocess = (event) => {
           const inputData = event.inputBuffer.getChannelData(0);
+          const inputSampleRate = audioContextRef.current!.sampleRate;
+          
+          // Resample to 24kHz if needed (critical for OpenAI Realtime API)
+          const resampled24kHz = resampleTo24kHz(inputData, inputSampleRate);
           
           // Convert Float32 to Int16 PCM
-          const pcm16Data = float32ToInt16(inputData);
+          const pcm16Data = float32ToInt16(resampled24kHz);
           
           // Send to server
           if (wsRef.current?.readyState === WebSocket.OPEN) {
