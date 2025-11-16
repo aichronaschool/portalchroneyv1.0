@@ -38,7 +38,7 @@ import fs from "fs";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { WebSocketServer } from "ws";
-import { webrtcRealtimeService } from "./webrtcRealtimeService";
+import { openaiRealtimeService } from "./openaiRealtimeService";
 
 const execAsync = promisify(exec);
 
@@ -4107,8 +4107,8 @@ Format your response as JSON with this structure:
         });
 
         wss.handleUpgrade(request, socket, head, (ws) => {
-          console.log('[WebSocket] WebRTC signaling connection established');
-          webrtcRealtimeService.handleSignalingConnection(ws, businessAccountId, userId);
+          console.log('[WebSocket] Voice connection established');
+          openaiRealtimeService.handleConnection(ws, businessAccountId, userId);
         });
       } catch (error: any) {
         console.error('[WebSocket] Upgrade error:', error);
