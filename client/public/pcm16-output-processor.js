@@ -3,15 +3,16 @@
  * - Receives PCM16 audio chunks from main thread
  * - Maintains ring buffer for smooth playback
  * - Converts int16 to float32 for Web Audio output
- * - Low latency design with small buffer (<100ms)
+ * - 1000ms buffer to handle OpenAI's large audio chunks (up to 650ms)
  */
 
 class PCM16OutputProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
     
-    // Ring buffer for smooth playback (2400 samples = 100ms @ 24kHz)
-    this.ringBuffer = new Float32Array(2400);
+    // Ring buffer for smooth playback (24000 samples = 1000ms @ 24kHz)
+    // Large enough to hold OpenAI's biggest chunks (up to 650ms) with safety margin
+    this.ringBuffer = new Float32Array(24000);
     this.writeIndex = 0;
     this.readIndex = 0;
     this.bufferedSamples = 0;
