@@ -9528,6 +9528,7 @@ Format your response as JSON with this structure:
 import express from "express";
 import fs3 from "fs";
 import path4 from "path";
+import { fileURLToPath as fileURLToPath2 } from "url";
 import { createServer as createViteServer, createLogger } from "vite";
 
 // vite.config.ts
@@ -9572,6 +9573,7 @@ var vite_config_default = defineConfig({
 
 // server/vite.ts
 import { nanoid } from "nanoid";
+var __dirname2 = import.meta.dirname || path4.dirname(fileURLToPath2(import.meta.url));
 var viteLogger = createLogger();
 function log(message, source = "express") {
   const formattedTime = (/* @__PURE__ */ new Date()).toLocaleTimeString("en-US", {
@@ -9601,14 +9603,14 @@ async function setupVite(app2, server) {
     server: serverOptions,
     appType: "custom"
   });
-  const publicPath = path4.resolve(import.meta.dirname, "..", "public");
+  const publicPath = path4.resolve(__dirname2, "..", "public");
   app2.use(express.static(publicPath));
   app2.use(vite.middlewares);
   app2.use("*", async (req, res, next) => {
     const url = req.originalUrl;
     try {
       const clientTemplate = path4.resolve(
-        import.meta.dirname,
+        __dirname2,
         "..",
         "client",
         "index.html"
@@ -9627,7 +9629,7 @@ async function setupVite(app2, server) {
   });
 }
 function serveStatic(app2) {
-  const distPath = path4.resolve(import.meta.dirname, "public");
+  const distPath = path4.resolve(__dirname2, "public");
   if (!fs3.existsSync(distPath)) {
     throw new Error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`
