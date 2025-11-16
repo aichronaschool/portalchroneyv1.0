@@ -4027,12 +4027,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { fromDate, toDate } = req.query;
 
       // Get OpenAI API key for the business
-      const openaiApiKey = await storage.getBusinessAccountOpenAIKey(businessAccountId);
-      if (!openaiApiKey) {
+      const encryptedOpenaiApiKey = await storage.getBusinessAccountOpenAIKey(businessAccountId);
+      if (!encryptedOpenaiApiKey) {
         return res.status(400).json({ 
-          error: "OpenAI API key not configured. Please add your API key in Settings to enable AI insights." 
+          error: "OpenAI API key not configured. Please contact SuperAdmin to set it up." 
         });
       }
+
+      // Decrypt the OpenAI API key before using it
+      const { decrypt } = await import("./services/encryptionService");
+      const openaiApiKey = decrypt(encryptedOpenaiApiKey);
 
       // Fetch conversations with their messages
       const conversations = await storage.getConversationsByBusinessAccount(

@@ -17,7 +17,11 @@ export class PDFProcessingService {
       throw new Error('OpenAI API key not configured for this business account');
     }
 
-    return new OpenAI({ apiKey: businessAccount.openaiApiKey });
+    // Decrypt the OpenAI API key before using it
+    const { decrypt } = await import('../services/encryptionService');
+    const decryptedApiKey = decrypt(businessAccount.openaiApiKey);
+
+    return new OpenAI({ apiKey: decryptedApiKey });
   }
 
   async extractTextFromPDF(filePath: string): Promise<string> {
