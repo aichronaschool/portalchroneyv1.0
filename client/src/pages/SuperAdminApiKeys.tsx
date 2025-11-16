@@ -1,0 +1,304 @@
+import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Eye, EyeOff, Key, DollarSign, Building2 } from "lucide-react";
+
+const CURRENCY_OPTIONS = [
+  { value: "USD", label: "USD - US Dollar" },
+  { value: "EUR", label: "EUR - Euro" },
+  { value: "GBP", label: "GBP - British Pound" },
+  { value: "INR", label: "INR - Indian Rupee" },
+  { value: "AUD", label: "AUD - Australian Dollar" },
+  { value: "CAD", label: "CAD - Canadian Dollar" },
+  { value: "SGD", label: "SGD - Singapore Dollar" },
+  { value: "JPY", label: "JPY - Japanese Yen" },
+  { value: "CNY", label: "CNY - Chinese Yuan" },
+];
+
+const apiKeySchema = z.object({
+  openaiApiKey: z.string().optional(),
+});
+
+const currencySchema = z.object({
+  currency: z.string().min(3, "Currency code must be 3 letters"),
+});
+
+type ApiKeyFormData = z.infer<typeof apiKeySchema>;
+type CurrencyFormData = z.infer<typeof currencySchema>;
+
+export default function SuperAdminApiKeys() {
+  const { toast } = useToast();
+  const [selectedBusinessId, setSelectedBusinessId] = useState<string>("");
+  const [showApiKey, setShowApiKey] = useState(false);
+
+  const { data: businessAccounts = [] } = useQuery({
+    queryKey: ["/api/business-accounts"],
+  });
+
+  const { data: apiSettings } = useQuery({
+    queryKey: ["/api/business-accounts", selectedBusinessId, "api-settings"],
+    enabled: !!selectedBusinessId,
+  });
+
+  const apiKeyForm = useForm<ApiKeyFormData>({
+    resolver: zodResolver(apiKeySchema),
+    defaultValues: {
+      openaiApiKey: "",
+    },
+  });
+
+  const currencyForm = useForm<CurrencyFormData>({
+    resolver: zodResolver(currencySchema),
+    defaultValues: {
+      currency: apiSettings?.currency || "USD",
+    },
+  });
+
+  useState(() => {
+    if (apiSettings?.currency) {
+      currencyForm.setValue("currency", apiSettings.currency);
+    }
+  });
+
+  const updateApiKeyMutation = useMutation({
+    mutationFn: async (data: ApiKeyFormData) => {
+      return apiRequest("PATCH", `/api/business-accounts/${selectedBusinessId}/api-settings`, data);
+    },
+    onSuccess: () => {
+      toast({
+        title: "Success",
+        description: "OpenAI API key updated successfully",
+      });
+      queryClient.invalidateQueries({ 
+        queryKey: ["/api/business-accounts", selectedBusinessId, "api-settings"] 
+      });
+      apiKeyForm.reset({ openaiApiKey: "" });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update API key",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const updateCurrencyMutation = useMutation({
+    mutationFn: async (data: CurrencyFormData) => {
+      return apiRequest("PATCH", `/api/business-accounts/${selectedBusinessId}/api-settings`, data);
+    },
+    onSuccess: () => {
+      toast({
+        title: "Success",
+        description: "Currency updated successfully",
+      });
+      queryClient.invalidateQueries({ 
+        queryKey: ["/api/business-accounts", selectedBusinessId, "api-settings"] 
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update currency",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleApiKeySubmit = apiKeyForm.handleSubmit((data) => {
+    if (!selectedBusinessId) {
+      toast({
+        title: "Error",
+        description: "Please select a business account first",
+        variant: "destructive",
+      });
+      return;
+    }
+    updateApiKeyMutation.mutate(data);
+  });
+
+  const handleCurrencySubmit = currencyForm.handleSubmit((data) => {
+    if (!selectedBusinessId) {
+      toast({
+        title: "Error",
+        description: "Please select a business account first",
+        variant: "destructive",
+      });
+      return;
+    }
+    updateCurrencyMutation.mutate(data);
+  });
+
+  return (
+    <div className="container mx-auto p-6 space-y-6 max-w-5xl">
+      <div className="space-y-2">
+        <h1 className="text-3xl font-semibold tracking-tight">API Keys & Settings</h1>
+        <p className="text-muted-foreground">
+          Manage OpenAI API keys and currency settings for business accounts
+        </p>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Building2 className="w-5 h-5" />
+            Select Business Account
+          </CardTitle>
+          <CardDescription>
+            Choose a business account to configure its API settings
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Select value={selectedBusinessId} onValueChange={setSelectedBusinessId}>
+            <SelectTrigger data-testid="select-business-account">
+              <SelectValue placeholder="Select a business account..." />
+            </SelectTrigger>
+            <SelectContent>
+              {businessAccounts.map((account: any) => (
+                <SelectItem key={account.id} value={account.id}>
+                  {account.name} ({account.website || "No website"})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </CardContent>
+      </Card>
+
+      {selectedBusinessId && (
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Key className="w-5 h-5" />
+                OpenAI API Key
+              </CardTitle>
+              <CardDescription>
+                Configure the OpenAI API key for this business account's chatbot
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {apiSettings?.hasApiKey && (
+                <div className="p-4 bg-muted rounded-md space-y-2">
+                  <p className="text-sm font-medium">Current API Key</p>
+                  <p className="text-sm font-mono text-muted-foreground">
+                    {apiSettings.openaiApiKey}
+                  </p>
+                </div>
+              )}
+
+              <form onSubmit={handleApiKeySubmit} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="openaiApiKey">
+                    {apiSettings?.hasApiKey ? "New API Key (leave blank to keep existing)" : "API Key"}
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      id="openaiApiKey"
+                      type={showApiKey ? "text" : "password"}
+                      placeholder="sk-..."
+                      data-testid="input-openai-api-key"
+                      {...apiKeyForm.register("openaiApiKey")}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-full"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      data-testid="button-toggle-api-key-visibility"
+                    >
+                      {showApiKey ? (
+                        <EyeOff className="w-4 h-4" />
+                      ) : (
+                        <Eye className="w-4 h-4" />
+                      )}
+                    </Button>
+                  </div>
+                  {apiKeyForm.formState.errors.openaiApiKey && (
+                    <p className="text-sm text-destructive">
+                      {apiKeyForm.formState.errors.openaiApiKey.message}
+                    </p>
+                  )}
+                </div>
+
+                <Button
+                  type="submit"
+                  disabled={updateApiKeyMutation.isPending}
+                  data-testid="button-save-api-key"
+                >
+                  {updateApiKeyMutation.isPending ? "Saving..." : "Save API Key"}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <DollarSign className="w-5 h-5" />
+                Currency Settings
+              </CardTitle>
+              <CardDescription>
+                Configure the display currency for products and pricing
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleCurrencySubmit} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="currency">Currency</Label>
+                  <Select
+                    value={currencyForm.watch("currency")}
+                    onValueChange={(value) => currencyForm.setValue("currency", value)}
+                  >
+                    <SelectTrigger data-testid="select-currency">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CURRENCY_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {currencyForm.formState.errors.currency && (
+                    <p className="text-sm text-destructive">
+                      {currencyForm.formState.errors.currency.message}
+                    </p>
+                  )}
+                </div>
+
+                <Button
+                  type="submit"
+                  disabled={updateCurrencyMutation.isPending}
+                  data-testid="button-save-currency"
+                >
+                  {updateCurrencyMutation.isPending ? "Saving..." : "Save Currency"}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        </>
+      )}
+
+      {!selectedBusinessId && (
+        <Card>
+          <CardContent className="flex items-center justify-center py-12">
+            <p className="text-muted-foreground">
+              Please select a business account to manage its API settings
+            </p>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}

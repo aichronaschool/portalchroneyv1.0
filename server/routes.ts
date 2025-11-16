@@ -1004,6 +1004,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // SuperAdmin: Update API settings (OpenAI API key and currency) for a business account
+  app.patch("/api/business-accounts/:id/api-settings", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { openaiApiKey, currency } = req.body;
+      
+      // Verify business account exists
+      const businessAccount = await storage.getBusinessAccount(id);
+      if (!businessAccount) {
+        return res.status(404).json({ error: "Business account not found" });
+      }
+      
+      // Update OpenAI API key if provided (encrypted in storage layer)
+      if (openaiApiKey !== undefined) {
+        if (openaiApiKey && typeof openaiApiKey !== 'string') {
+          return res.status(400).json({ error: "API key must be a string" });
+        }
+        await storage.updateBusinessAccountOpenAIKey(id, openaiApiKey || null);
+      }
+      
+      // Update currency in widget settings if provided
+      if (currency !== undefined) {
+        if (typeof currency !== 'string') {
+          return res.status(400).json({ error: "Currency must be a string" });
+        }
+        // Validate currency format (3-letter ISO code)
+        if (currency && !/^[A-Z]{3}$/.test(currency)) {
+          return res.status(400).json({ error: "Currency must be a valid 3-letter ISO code (e.g., USD, EUR)" });
+        }
+        await storage.upsertWidgetSettings(id, { currency });
+      }
+      
+      // Fetch updated data
+      const updated = await storage.getBusinessAccount(id);
+      const widgetSettings = await storage.getWidgetSettings(id);
+      
+      // Return masked API key for security
+      res.json({
+        businessAccountId: updated!.id,
+        openaiApiKey: updated!.openaiApiKey ? `sk-...${updated!.openaiApiKey.slice(-4)}` : null,
+        currency: widgetSettings?.currency || "USD",
+      });
+    } catch (error: any) {
+      console.error('[SuperAdmin API Settings] Error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // SuperAdmin: Get API settings for a business account
+  app.get("/api/business-accounts/:id/api-settings", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      const businessAccount = await storage.getBusinessAccount(id);
+      if (!businessAccount) {
+        return res.status(404).json({ error: "Business account not found" });
+      }
+      
+      const widgetSettings = await storage.getWidgetSettings(id);
+      
+      // Return masked API key for security
+      res.json({
+        businessAccountId: businessAccount.id,
+        businessName: businessAccount.name,
+        openaiApiKey: businessAccount.openaiApiKey ? `sk-...${businessAccount.openaiApiKey.slice(-4)}` : null,
+        hasApiKey: !!businessAccount.openaiApiKey,
+        currency: widgetSettings?.currency || "USD",
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // =============================================================================
   // DEMO PAGES - SuperAdmin Routes
   // =============================================================================
