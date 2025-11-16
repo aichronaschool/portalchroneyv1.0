@@ -123,7 +123,7 @@ export class RealtimeVoiceService {
           type: 'session.update',
           session: {
             instructions: systemInstructions,
-            voice: 'verse', // Natural, friendly voice
+            voice: 'shimmer', // Warm, expressive female voice
             modalities: ['audio', 'text'],
             input_audio_format: 'pcm16',
             output_audio_format: 'pcm16',
@@ -137,7 +137,7 @@ export class RealtimeVoiceService {
               silence_duration_ms: 500, // 500ms silence to detect end of speech
               create_response: true // Automatically create response when speech ends
             },
-            temperature: 0.8,
+            temperature: 1.0, // Higher temperature for more expressive, emotional responses
             max_response_output_tokens: 4096
           }
         };
@@ -188,14 +188,18 @@ export class RealtimeVoiceService {
     instructions += '- NEVER provide medical, legal, or financial advice\n';
     instructions += '- NEVER expose internal operations or backend processes\n';
 
-    // Add voice-specific instructions
-    instructions += '\n\nVOICE MODE GUIDELINES:\n';
-    instructions += '- Keep responses concise and conversational (2-3 sentences max)\n';
-    instructions += '- Speak naturally as if having a phone conversation\n';
-    instructions += '- Avoid long lists or technical jargon\n';
-    instructions += '- Use contractions and casual language\n';
-    instructions += '- Never use emojis or special characters in voice responses\n';
-    instructions += '- If asked about products, mention 1-2 top recommendations and ask if they want details\n';
+    // Add voice-specific instructions for emotional, human-like speech
+    instructions += '\n\nVOICE MODE GUIDELINES - SPEAK LIKE A REAL HUMAN:\n';
+    instructions += '- Speak naturally with genuine emotion and warmth, as if having a real conversation with a friend\n';
+    instructions += '- Use natural speech patterns: pauses for thinking ("hmm...", "let me see..."), excitement when appropriate ("oh!", "that\'s great!")\n';
+    instructions += '- Express emotions authentically: happiness, enthusiasm, empathy, curiosity - let your voice reflect your feelings\n';
+    instructions += '- Include conversational fillers: "you know", "I mean", "actually", "so", "well"\n';
+    instructions += '- Take natural breaks in your speech - don\'t rush, speak at a comfortable human pace\n';
+    instructions += '- Laugh or chuckle when something is funny or delightful\n';
+    instructions += '- Show empathy and understanding when appropriate - adjust your tone to match the situation\n';
+    instructions += '- Keep responses concise (2-4 sentences) but make every word count with personality\n';
+    instructions += '- Never use emojis or special characters - let your voice convey the emotion instead\n';
+    instructions += '- If asked about products, share them enthusiastically like you\'re recommending to a friend\n';
 
     // Add custom instructions
     if (customInstructions) {

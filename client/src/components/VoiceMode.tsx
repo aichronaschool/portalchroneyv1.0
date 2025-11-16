@@ -59,8 +59,9 @@ export function VoiceMode({
   const pendingInterruptRef = useRef(false); // Track interrupt state to ignore late chunks
   const stateRef = useRef(state); // Mutable ref for VAD to check current state
   const bufferedTranscriptRef = useRef<{text: string, isFinal: boolean} | null>(null); // Buffer transcripts during interrupt
-  // Per-turn state tracking to handle async transcripts correctly
-  const turnsRef = useRef<Map<string, { awaitingTranscript: boolean }>>(new Map());
+  // Simple transcript tracking (will improve with per-turn architecture later)
+  const awaitingUserTranscriptRef = useRef(false);
+  const lastAIMessageIdRef = useRef<string | null>(null);
   const audioWorkletNodeRef = useRef<AudioWorkletNode | null>(null); // For capturing raw PCM audio
   const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null); // Fallback for older browsers
   const mediaSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
@@ -244,26 +245,6 @@ export function VoiceMode({
         if (pendingInterruptRef.current) {
           console.log('[VoiceMode] Ignoring late ai_chunk after interrupt');
           return;
-        }
-        
-        // Track turn state (only on first chunk)
-        if (!currentAIMessageIdRef.current) {
-          // First chunk - create new AI message
-          const aiMessageId = Date.now().toString();
-          currentAIMessageIdRef.current = aiMessageId;
-          
-          // Check if user transcript already arrived for this turn
-          setMessages(prev => {
-            const lastMessage = prev[prev.length - 1];
-            const transcriptArrived = lastMessage && lastMessage.role === 'user';
-            
-            // Track this turn
-            turnsRef.current.set(aiMessageId, {
-              awaitingTranscript: !transcriptArrived
-            });
-            
-            return prev; // Don't modify messages here
-          });
         }
         
         // AI streaming chunk - accumulate text for real-time display
