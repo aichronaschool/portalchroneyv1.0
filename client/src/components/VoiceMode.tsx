@@ -1,0 +1,1040 @@
+import { X } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+import { motion, AnimatePresence } from "framer-motion";
+
+type VoiceState = 'idle' | 'listening' | 'thinking' | 'speaking';
+
+interface Message {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;
+  timestamp: Date;
+  isFinal?: boolean;
+}
+
+interface VoiceModeProps {
+  isOpen: boolean;
+  onClose: () => void;
+  userId: string;
+  businessAccountId: string;
+  widgetHeaderText?: string;
+  chatColor?: string;
+  chatColorEnd?: string;
+}
+
+export function VoiceMode({
+  isOpen,
+  onClose,
+  userId,
+  businessAccountId,
+  widgetHeaderText = "Hi Chroney",
+  chatColor = "#9333ea",
+  chatColorEnd = "#3b82f6"
+}: VoiceModeProps) {
+  const [state, setState] = useState<VoiceState>('idle');
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [currentTranscript, setCurrentTranscript] = useState('');
+  const [isOnline, setIsOnline] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+  
+  const wsRef = useRef<WebSocket | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const audioQueueRef = useRef<AudioBuffer[]>([]);
+  const isPlayingRef = useRef(false);
+  const currentAudioSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const nextPlaybackTimeRef = useRef<number>(0);
+  const audioChunkBufferRef = useRef<Uint8Array[]>([]);
+  const shouldAutoRestartRef = useRef(false);
+  const isOnlineRef = useRef(false);
+  const hasPermissionRef = useRef(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const currentAIMessageIdRef = useRef<string | null>(null);
+  const vadAnalyserRef = useRef<AnalyserNode | null>(null);
+  const vadIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingInterruptRef = useRef(false); // Track interrupt state to ignore late chunks
+  const stateRef = useRef(state); // Mutable ref for VAD to check current state
+  const bufferedTranscriptRef = useRef<{text: string, isFinal: boolean} | null>(null); // Buffer transcripts during interrupt
+  const { toast } = useToast();
+  
+  // Keep stateRef in sync with state
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  // Auto-scroll to latest message
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, currentTranscript]);
+
+  // Preload AudioContext on mount to eliminate initialization delay
+  useEffect(() => {
+    if (isOpen && !audioContextRef.current) {
+      try {
+        audioContextRef.current = new AudioContext({ sampleRate: 48000 });
+        console.log('[VoiceMode] AudioContext preloaded, sampleRate:', audioContextRef.current.sampleRate);
+      } catch (error) {
+        console.error('[VoiceMode] Failed to preload AudioContext:', error);
+      }
+    }
+  }, [isOpen]);
+
+  // Initialize WebSocket connection
+  useEffect(() => {
+    if (!isOpen) return;
+
+    connectWebSocket();
+
+    return () => {
+      cleanup();
+    };
+  }, [isOpen, userId, businessAccountId]);
+
+  const connectWebSocket = () => {
+    setIsConnecting(true);
+    
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    const wsUrl = `${protocol}//${host}/ws/voice?businessAccountId=${businessAccountId}&userId=${userId}`;
+    
+    console.log('[VoiceMode] Connecting to:', wsUrl);
+    
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      console.log('[VoiceMode] WebSocket connected');
+      setIsConnecting(false);
+      setIsOnline(true);
+      isOnlineRef.current = true;
+    };
+
+    ws.onmessage = async (event) => {
+      if (event.data instanceof Blob) {
+        // Binary audio data
+        const arrayBuffer = await event.data.arrayBuffer();
+        await handleAudioChunk(arrayBuffer);
+      } else {
+        // JSON message
+        try {
+          const data = JSON.parse(event.data);
+          handleMessage(data);
+        } catch (error) {
+          console.error('[VoiceMode] Failed to parse message:', error);
+        }
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error('[VoiceMode] WebSocket error:', error);
+      toast({
+        title: "Connection Error",
+        description: "Failed to connect to voice service",
+        variant: "destructive"
+      });
+      setIsConnecting(false);
+      setIsOnline(false);
+      isOnlineRef.current = false;
+    };
+
+    ws.onclose = () => {
+      console.log('[VoiceMode] WebSocket closed');
+      setIsOnline(false);
+      isOnlineRef.current = false;
+      setIsConnecting(false);
+    };
+  };
+
+  const handleMessage = async (data: any) => {
+    console.log('[VoiceMode] Received message:', data.type);
+
+    switch (data.type) {
+      case 'ready':
+        console.log('[VoiceMode] Service ready');
+        // Enable auto-restart for continuous conversation
+        shouldAutoRestartRef.current = true;
+        
+        // Try auto-start, but if it fails (e.g., no user interaction yet), just stay idle
+        // User can tap the orb to start manually
+        if (hasPermissionRef.current === true) {
+          // We already have permission, auto-start
+          try {
+            console.log('[VoiceMode] Auto-starting with existing permission...');
+            await startRecording();
+            console.log('[VoiceMode] Auto-start successful');
+          } catch (error) {
+            console.error('[VoiceMode] Auto-start failed:', error);
+            setState('idle');
+          }
+        } else {
+          // First time - need user interaction for mic permission
+          console.log('[VoiceMode] Waiting for user interaction to request microphone...');
+          setState('idle');
+        }
+        break;
+
+      case 'transcript':
+        // Buffer final transcripts while interrupt is pending
+        if (pendingInterruptRef.current && data.isFinal) {
+          console.log('[VoiceMode] Buffering transcript during interrupt:', data.text);
+          bufferedTranscriptRef.current = { text: data.text, isFinal: true };
+          return;
+        }
+        
+        // Update current transcript
+        if (data.isFinal) {
+          // Add final user message
+          const userMessage: Message = {
+            id: Date.now().toString(),
+            role: 'user',
+            text: data.text,
+            timestamp: new Date(),
+            isFinal: true
+          };
+          setMessages(prev => [...prev, userMessage]);
+          setCurrentTranscript('');
+          setState('thinking');
+        } else {
+          // Show interim transcript
+          setCurrentTranscript(data.text);
+        }
+        break;
+
+      case 'ai_chunk':
+        // Ignore late chunks if we're pending an interrupt
+        if (pendingInterruptRef.current) {
+          console.log('[VoiceMode] Ignoring late ai_chunk after interrupt');
+          return;
+        }
+        
+        // AI streaming chunk - accumulate text for real-time display
+        setState('speaking');
+        
+        // Start voice activity detection to allow user interruption
+        if (!vadIntervalRef.current && mediaStreamRef.current) {
+          startVoiceActivityDetection();
+        }
+        
+        if (!currentAIMessageIdRef.current) {
+          // First chunk - create new AI message
+          const messageId = Date.now().toString();
+          currentAIMessageIdRef.current = messageId;
+          const aiMessage: Message = {
+            id: messageId,
+            role: 'assistant',
+            text: data.text,
+            timestamp: new Date()
+          };
+          setMessages(prev => [...prev, aiMessage]);
+        } else {
+          // Subsequent chunks - append to existing message
+          setMessages(prev => prev.map(msg => 
+            msg.id === currentAIMessageIdRef.current
+              ? { ...msg, text: msg.text + data.text }
+              : msg
+          ));
+        }
+        break;
+
+      case 'ai_speaking':
+        // Legacy full-text mode (keep for backwards compatibility)
+        setState('speaking');
+        const aiMessage: Message = {
+          id: Date.now().toString(),
+          role: 'assistant',
+          text: data.text,
+          timestamp: new Date()
+        };
+        setMessages(prev => [...prev, aiMessage]);
+        break;
+
+      case 'ai_done':
+        // Ignore if we're pending an interrupt
+        if (pendingInterruptRef.current) {
+          console.log('[VoiceMode] Ignoring ai_done after interrupt');
+          return;
+        }
+        
+        // AI finished speaking - flush any remaining audio chunks
+        await processBatchedAudioChunks();
+        currentAIMessageIdRef.current = null;
+        
+        // Stop voice activity detection
+        stopVoiceActivityDetection();
+        
+        // Microphone is already running from when user last spoke
+        // Just transition state back to listening without restarting recorder
+        console.log('[VoiceMode] AI done, transitioning back to listening...');
+        
+        if (shouldAutoRestartRef.current && isOnlineRef.current && hasPermissionRef.current) {
+          console.log('[VoiceMode] Ready for next turn (mic already active)...');
+          setState('listening');
+        } else {
+          console.log('[VoiceMode] Not restarting - conditions not met');
+          setState('idle');
+        }
+        break;
+
+      case 'interrupt_ack':
+        // Server acknowledged interrupt - clear pending flag and replay buffered transcript
+        console.log('[VoiceMode] Interrupt acknowledged by server');
+        pendingInterruptRef.current = false;
+        currentAIMessageIdRef.current = null;
+        
+        // Replay buffered transcript if any
+        if (bufferedTranscriptRef.current) {
+          console.log('[VoiceMode] Replaying buffered transcript:', bufferedTranscriptRef.current.text);
+          const userMessage: Message = {
+            id: Date.now().toString(),
+            role: 'user',
+            text: bufferedTranscriptRef.current.text,
+            timestamp: new Date(),
+            isFinal: true
+          };
+          setMessages(prev => [...prev, userMessage]);
+          bufferedTranscriptRef.current = null;
+          setState('thinking');
+        } else {
+          setState('listening');
+        }
+        break;
+
+      case 'busy':
+        // Queue is saturated - notify user and reset to idle
+        toast({
+          title: "Processing Previous Requests",
+          description: data.message || "Please wait before speaking again...",
+          variant: "default"
+        });
+        setState('idle');
+        setCurrentTranscript('');
+        stopRecording();
+        break;
+
+      case 'processing_load':
+        // Queue is getting full - subtle warning
+        console.warn('[VoiceMode] High processing load, queue size:', data.queueSize);
+        break;
+
+      case 'error':
+        toast({
+          title: "Error",
+          description: data.message || "Voice processing error",
+          variant: "destructive"
+        });
+        setState('idle');
+        stopRecording();
+        break;
+    }
+  };
+
+  const handleAudioChunk = async (arrayBuffer: ArrayBuffer) => {
+    try {
+      // Drop audio if we're pending an interrupt
+      if (pendingInterruptRef.current) {
+        console.log('[VoiceMode] Dropping audio chunk - interrupt pending');
+        return;
+      }
+      
+      if (!audioContextRef.current) {
+        // Let browser use its default sample rate (usually 48000 Hz)
+        // It will automatically resample our 24kHz audio
+        audioContextRef.current = new AudioContext();
+        console.log('[VoiceMode] AudioContext created, sampleRate:', audioContextRef.current.sampleRate);
+      }
+
+      // Accumulate chunks for batch decoding (reduces artifacts from tiny buffers)
+      audioChunkBufferRef.current.push(new Uint8Array(arrayBuffer));
+      
+      // Batch decode every 5 chunks (~100-200ms of audio) for faster playback
+      const BATCH_SIZE = 5;
+      if (audioChunkBufferRef.current.length >= BATCH_SIZE) {
+        await processBatchedAudioChunks();
+      }
+    } catch (error) {
+      console.error('[VoiceMode] Audio chunk handling error:', error);
+    }
+  };
+
+  const processBatchedAudioChunks = async () => {
+    if (audioChunkBufferRef.current.length === 0 || !audioContextRef.current) {
+      return;
+    }
+    
+    // Drop buffered audio if we're pending an interrupt
+    if (pendingInterruptRef.current) {
+      console.log('[VoiceMode] Dropping buffered audio - interrupt pending');
+      audioChunkBufferRef.current = [];
+      return;
+    }
+
+    try {
+      // Combine all buffered chunks into one larger buffer
+      const totalLength = audioChunkBufferRef.current.reduce((sum, chunk) => sum + chunk.length, 0);
+      const combinedBuffer = new Uint8Array(totalLength);
+      let offset = 0;
+      
+      for (const chunk of audioChunkBufferRef.current) {
+        combinedBuffer.set(chunk, offset);
+        offset += chunk.length;
+      }
+      
+      console.log('[VoiceMode] Decoding batched audio, size:', combinedBuffer.length, 'chunks:', audioChunkBufferRef.current.length);
+      
+      // Clear the buffer
+      audioChunkBufferRef.current = [];
+      
+      // Decode the combined audio data
+      const audioBuffer = await decodeLinearPCM(combinedBuffer.buffer, audioContextRef.current);
+      
+      // Check again after async decode - interrupt may have occurred
+      if (pendingInterruptRef.current) {
+        console.log('[VoiceMode] Dropping decoded audio - interrupt occurred during decode');
+        return;
+      }
+      
+      console.log('[VoiceMode] Decoded audio buffer, duration:', audioBuffer.duration, 'sampleRate:', audioBuffer.sampleRate);
+      
+      // Add to playback queue
+      audioQueueRef.current.push(audioBuffer);
+      
+      // Start playback if not already playing
+      if (!isPlayingRef.current) {
+        playNextAudioChunk();
+      }
+    } catch (error) {
+      console.error('[VoiceMode] Batch audio decode error:', error);
+    }
+  };
+
+  const createWavHeader = (dataLength: number, sampleRate: number): ArrayBuffer => {
+    const buffer = new ArrayBuffer(44);
+    const view = new DataView(buffer);
+    
+    // "RIFF" chunk descriptor
+    view.setUint32(0, 0x52494646, false); // "RIFF"
+    view.setUint32(4, 36 + dataLength, true); // File size - 8
+    view.setUint32(8, 0x57415645, false); // "WAVE"
+    
+    // "fmt " sub-chunk
+    view.setUint32(12, 0x666d7420, false); // "fmt "
+    view.setUint32(16, 16, true); // Subchunk size
+    view.setUint16(20, 1, true); // Audio format (1 = PCM)
+    view.setUint16(22, 1, true); // Number of channels (1 = mono)
+    view.setUint32(24, sampleRate, true); // Sample rate
+    view.setUint32(28, sampleRate * 2, true); // Byte rate
+    view.setUint16(32, 2, true); // Block align
+    view.setUint16(34, 16, true); // Bits per sample
+    
+    // "data" sub-chunk
+    view.setUint32(36, 0x64617461, false); // "data"
+    view.setUint32(40, dataLength, true); // Data size
+    
+    return buffer;
+  };
+
+  const decodeLinearPCM = async (arrayBuffer: ArrayBuffer, audioContext: AudioContext): Promise<AudioBuffer> => {
+    // Create WAV file with header for proper browser decoding
+    const wavHeader = createWavHeader(arrayBuffer.byteLength, 24000);
+    
+    // Combine WAV header + PCM data
+    const wavFile = new Uint8Array(wavHeader.byteLength + arrayBuffer.byteLength);
+    wavFile.set(new Uint8Array(wavHeader), 0);
+    wavFile.set(new Uint8Array(arrayBuffer), wavHeader.byteLength);
+    
+    // Use browser's native audio decoder
+    try {
+      return await audioContext.decodeAudioData(wavFile.buffer);
+    } catch (error) {
+      console.error('[VoiceMode] DecodeAudioData failed, falling back to manual decode:', error);
+      // Fallback to manual decoding if native fails
+      const dataView = new DataView(arrayBuffer);
+      const samples = new Float32Array(arrayBuffer.byteLength / 2);
+      
+      for (let i = 0; i < samples.length; i++) {
+        const int16 = dataView.getInt16(i * 2, true);
+        samples[i] = int16 / 32768.0;
+      }
+      
+      const audioBuffer = audioContext.createBuffer(1, samples.length, 24000);
+      audioBuffer.getChannelData(0).set(samples);
+      return audioBuffer;
+    }
+  };
+
+  // Voice Activity Detection for interruption handling
+  const startVoiceActivityDetection = () => {
+    if (!mediaStreamRef.current || !audioContextRef.current) return;
+    
+    try {
+      // Create analyser for VAD
+      const analyser = audioContextRef.current.createAnalyser();
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.3;
+      
+      // Connect microphone to analyser (but not to destination to avoid echo)
+      const source = audioContextRef.current.createMediaStreamSource(mediaStreamRef.current);
+      source.connect(analyser);
+      vadAnalyserRef.current = analyser;
+      
+      // Monitor audio levels to detect user speech
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const VOICE_THRESHOLD = 40; // Adjust based on testing
+      const SILENCE_FRAMES_NEEDED = 3; // Debounce false positives
+      let silenceFrames = SILENCE_FRAMES_NEEDED;
+      
+      vadIntervalRef.current = setInterval(() => {
+        // Use ref to check state (avoid closure issues)
+        if (stateRef.current !== 'speaking') {
+          stopVoiceActivityDetection();
+          return;
+        }
+        
+        analyser.getByteFrequencyData(dataArray);
+        
+        // Calculate average volume
+        const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+        
+        if (average > VOICE_THRESHOLD) {
+          silenceFrames = 0; // Reset debounce
+          // User is speaking! Interrupt AI
+          handleInterruption();
+        } else {
+          silenceFrames++;
+        }
+      }, 100); // Check every 100ms
+      
+      console.log('[VoiceMode] Voice activity detection started');
+    } catch (error) {
+      console.error('[VoiceMode] Failed to start VAD:', error);
+    }
+  };
+
+  const stopVoiceActivityDetection = () => {
+    if (vadIntervalRef.current) {
+      clearInterval(vadIntervalRef.current);
+      vadIntervalRef.current = null;
+    }
+    vadAnalyserRef.current = null;
+    console.log('[VoiceMode] Voice activity detection stopped');
+  };
+
+  const handleInterruption = () => {
+    console.log('[VoiceMode] User interrupted! Stopping AI response...');
+    
+    // Set pending interrupt flag to ignore late chunks
+    pendingInterruptRef.current = true;
+    
+    // Reset buffered transcript to prepare for new user speech
+    bufferedTranscriptRef.current = null;
+    
+    // Stop VAD to prevent multiple interruptions
+    stopVoiceActivityDetection();
+    
+    // Stop current audio playback
+    if (currentAudioSourceRef.current) {
+      try {
+        currentAudioSourceRef.current.stop();
+      } catch (e) {
+        // Already stopped
+      }
+      currentAudioSourceRef.current = null;
+    }
+    
+    // Clear audio queue
+    audioQueueRef.current = [];
+    audioChunkBufferRef.current = [];
+    isPlayingRef.current = false;
+    nextPlaybackTimeRef.current = 0;
+    currentAIMessageIdRef.current = null;
+    
+    // Send interrupt signal to server
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'interrupt' }));
+    }
+    
+    // Transition to listening state
+    setState('listening');
+    
+    toast({
+      title: "Listening",
+      description: "Go ahead, I'm listening!",
+      duration: 1000
+    });
+  };
+
+  const playNextAudioChunk = () => {
+    // Exit early if interrupt is pending - don't play residual audio
+    if (pendingInterruptRef.current) {
+      console.log('[VoiceMode] Skipping playback - interrupt pending');
+      isPlayingRef.current = false;
+      currentAudioSourceRef.current = null;
+      audioQueueRef.current = [];
+      return;
+    }
+    
+    if (audioQueueRef.current.length === 0) {
+      isPlayingRef.current = false;
+      currentAudioSourceRef.current = null;
+      return;
+    }
+
+    isPlayingRef.current = true;
+    const audioBuffer = audioQueueRef.current.shift()!;
+    
+    if (!audioContextRef.current) return;
+
+    const source = audioContextRef.current.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(audioContextRef.current.destination);
+    
+    currentAudioSourceRef.current = source;
+    
+    // Schedule playback at precise time to avoid gaps
+    const currentTime = audioContextRef.current.currentTime;
+    const scheduleTime = Math.max(currentTime, nextPlaybackTimeRef.current);
+    
+    source.onended = () => {
+      currentAudioSourceRef.current = null;
+      playNextAudioChunk();
+    };
+
+    source.start(scheduleTime);
+    
+    // Advance playback time for next chunk
+    nextPlaybackTimeRef.current = scheduleTime + audioBuffer.duration;
+  };
+
+  const startRecording = async () => {
+    try {
+      console.log('[VoiceMode] Starting recording...');
+      
+      // Safety guard: Don't create duplicate recorders
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        console.warn('[VoiceMode] MediaRecorder already active, skipping startRecording');
+        return;
+      }
+
+      console.log('[VoiceMode] Requesting microphone access...');
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          sampleRate: 48000,
+        } 
+      });
+      
+      setHasPermission(true);
+      hasPermissionRef.current = true;
+      mediaStreamRef.current = stream;
+
+      // NOTE: MediaRecorder sends audio/webm with Opus codec
+      // Deepgram STT should auto-detect the format, but if there are issues,
+      // we may need to configure Deepgram with encoding: 'opus' or transcode to PCM
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'audio/webm;codecs=opus'
+      });
+      
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
+          // Send audio chunks to WebSocket
+          wsRef.current.send(event.data);
+        }
+      };
+
+      mediaRecorder.onstart = () => {
+        setState('listening');
+      };
+
+      mediaRecorder.onstop = () => {
+        // Stop all tracks when recording stops
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach(track => track.stop());
+          mediaStreamRef.current = null;
+        }
+      };
+
+      mediaRecorder.onerror = (error) => {
+        console.error('[VoiceMode] MediaRecorder error:', error);
+        stopRecording();
+      };
+
+      // Start recording with timeslice for streaming
+      mediaRecorder.start(50); // Send chunks every 50ms for faster streaming
+      
+    } catch (error: any) {
+      console.error('[VoiceMode] Microphone error:', error);
+      setHasPermission(false);
+      hasPermissionRef.current = false;
+      
+      if (error.name === 'NotAllowedError') {
+        toast({
+          title: "Microphone Access Denied",
+          description: "Please allow microphone permissions in your browser settings.",
+          variant: "destructive"
+        });
+      } else {
+        toast({
+          title: "Microphone Error",
+          description: "Failed to access microphone. Please check your settings.",
+          variant: "destructive"
+        });
+      }
+    }
+  };
+
+  const stopRecording = (): Promise<void> => {
+    return new Promise((resolve) => {
+      try {
+        const recorder = mediaRecorderRef.current;
+        
+        // If no recorder or not recording, resolve immediately
+        if (!recorder || recorder.state !== 'recording') {
+          // Still clean up media stream
+          if (mediaStreamRef.current) {
+            mediaStreamRef.current.getTracks().forEach(track => {
+              track.stop();
+              console.log('[VoiceMode] Stopped media track:', track.kind);
+            });
+            mediaStreamRef.current = null;
+          }
+          mediaRecorderRef.current = null;
+          resolve();
+          return;
+        }
+
+        // Set up onstop handler before stopping
+        recorder.onstop = () => {
+          console.log('[VoiceMode] MediaRecorder stopped');
+          
+          // Stop all media stream tracks to release microphone
+          if (mediaStreamRef.current) {
+            mediaStreamRef.current.getTracks().forEach(track => {
+              track.stop();
+              console.log('[VoiceMode] Stopped media track:', track.kind);
+            });
+            mediaStreamRef.current = null;
+          }
+          
+          mediaRecorderRef.current = null;
+          resolve();
+        };
+
+        // Stop the recorder (triggers onstop)
+        recorder.stop();
+        
+      } catch (error) {
+        console.error('[VoiceMode] Error stopping recording:', error);
+        // Clean up on error
+        mediaRecorderRef.current = null;
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach(track => track.stop());
+          mediaStreamRef.current = null;
+        }
+        resolve();
+      }
+    });
+  };
+
+  const cleanup = () => {
+    console.log('[VoiceMode] Cleaning up resources...');
+    
+    // Disable auto-restart when cleaning up
+    shouldAutoRestartRef.current = false;
+    
+    try {
+      // Stop voice activity detection
+      stopVoiceActivityDetection();
+      
+      // Stop any ongoing audio playback
+      if (currentAudioSourceRef.current) {
+        try {
+          currentAudioSourceRef.current.stop();
+        } catch (e) {
+          // Source may already be stopped
+        }
+        currentAudioSourceRef.current = null;
+      }
+
+      // Clear audio queue and chunk buffer
+      audioQueueRef.current = [];
+      audioChunkBufferRef.current = [];
+      isPlayingRef.current = false;
+      nextPlaybackTimeRef.current = 0;
+
+      // Stop recording and release microphone
+      stopRecording();
+
+      // Close WebSocket connection
+      if (wsRef.current) {
+        if (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING) {
+          wsRef.current.close();
+        }
+        wsRef.current = null;
+      }
+
+      // Suspend and close audio context to release audio resources
+      if (audioContextRef.current) {
+        if (audioContextRef.current.state !== 'closed') {
+          audioContextRef.current.close().then(() => {
+            console.log('[VoiceMode] AudioContext closed');
+          }).catch((error) => {
+            console.error('[VoiceMode] Error closing AudioContext:', error);
+          });
+        }
+        audioContextRef.current = null;
+      }
+
+      // Reset all state
+      setState('idle');
+      setMessages([]);
+      setCurrentTranscript('');
+      setIsOnline(false);
+      isOnlineRef.current = false;
+      setIsConnecting(false);
+
+      console.log('[VoiceMode] Cleanup complete');
+    } catch (error) {
+      console.error('[VoiceMode] Error during cleanup:', error);
+    }
+  };
+
+  const handleClose = () => {
+    cleanup();
+    onClose();
+  };
+
+  const formatTime = (date: Date) => {
+    return date.toLocaleTimeString('en-US', { 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    });
+  };
+
+  const getOrbStyle = () => {
+    const baseSize = 280;
+    let scale = 1;
+    let pulseSpeed = '3s';
+
+    switch (state) {
+      case 'listening':
+        scale = 1.1;
+        pulseSpeed = '0.8s';
+        break;
+      case 'thinking':
+        scale = 1.05;
+        pulseSpeed = '1.5s';
+        break;
+      case 'speaking':
+        scale = 1.08;
+        pulseSpeed = '1s';
+        break;
+      default:
+        scale = 1;
+        pulseSpeed = '3s';
+    }
+
+    return {
+      width: `${baseSize}px`,
+      height: `${baseSize}px`,
+      transform: `scale(${scale})`,
+      animationDuration: pulseSpeed
+    };
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-50 bg-gradient-to-br from-gray-50 via-white to-gray-100 flex flex-col"
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b border-gray-200 bg-white/80 backdrop-blur-sm">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900">{widgetHeaderText}</h2>
+            <div className="flex items-center gap-2 mt-1">
+              <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
+              <span className="text-sm text-gray-600">
+                {isConnecting ? 'Connecting...' : isOnline ? 'Online' : 'Offline'}
+              </span>
+            </div>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleClose}
+            className="text-gray-600 hover:text-gray-900"
+          >
+            <X className="w-6 h-6" />
+          </Button>
+        </div>
+
+        {/* Main Content */}
+        <div className="flex-1 flex flex-col items-center justify-center relative overflow-hidden">
+          {/* Animated Orb */}
+          <div className="relative flex items-center justify-center mb-12">
+            <motion.div
+              className="rounded-full orb-pulse cursor-pointer"
+              style={{
+                background: `linear-gradient(135deg, ${chatColor}, ${chatColorEnd})`,
+                ...getOrbStyle()
+              }}
+              animate={{
+                scale: state === 'listening' ? [1, 1.05, 1] : state === 'speaking' ? [1, 1.03, 1] : [1, 1.02, 1],
+              }}
+              transition={{
+                duration: state === 'listening' ? 0.8 : state === 'speaking' ? 1 : 3,
+                repeat: Infinity,
+                ease: "easeInOut"
+              }}
+              onClick={async () => {
+                if (state === 'idle' && isOnline && !isConnecting) {
+                  shouldAutoRestartRef.current = true;
+                  setState('listening');
+                  await startRecording();
+                }
+              }}
+            >
+              {/* Inner glow */}
+              <div 
+                className="absolute inset-0 rounded-full blur-2xl opacity-30"
+                style={{
+                  background: `linear-gradient(135deg, ${chatColor}, ${chatColorEnd})`,
+                }}
+              />
+            </motion.div>
+
+            {/* State indicator with enhanced visibility */}
+            <motion.div 
+              className="absolute -bottom-20 text-center"
+              animate={{
+                opacity: state === 'idle' ? [0.6, 1, 0.6] : 1,
+              }}
+              transition={{
+                duration: 2,
+                repeat: state === 'idle' ? Infinity : 0,
+                ease: "easeInOut"
+              }}
+            >
+              {state === 'idle' && (
+                <div className="flex flex-col items-center gap-2">
+                  <div 
+                    className="px-6 py-3 rounded-full shadow-lg"
+                    style={{ background: `linear-gradient(to right, ${chatColor}, ${chatColorEnd})` }}
+                  >
+                    <p className="text-base font-semibold text-white">
+                      👆 Click to Start Speaking
+                    </p>
+                  </div>
+                </div>
+              )}
+              {state === 'listening' && (
+                <div className="flex flex-col items-center gap-2">
+                  <div className="px-6 py-3 rounded-full bg-green-500 shadow-lg animate-pulse">
+                    <p className="text-base font-semibold text-white flex items-center gap-2">
+                      🎤 I'm Listening...
+                    </p>
+                  </div>
+                </div>
+              )}
+              {state === 'thinking' && (
+                <div className="flex flex-col items-center gap-2">
+                  <div className="px-6 py-3 rounded-full bg-yellow-500 shadow-lg">
+                    <p className="text-base font-semibold text-white flex items-center gap-2">
+                      🧠 Processing...
+                    </p>
+                  </div>
+                </div>
+              )}
+              {state === 'speaking' && (
+                <div className="flex flex-col items-center gap-2">
+                  <div className="px-6 py-3 rounded-full bg-blue-500 shadow-lg animate-pulse">
+                    <p className="text-base font-semibold text-white flex items-center gap-2">
+                      🔊 Chroney is Speaking...
+                    </p>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          </div>
+
+          {/* Transcript Display */}
+          <div className="absolute bottom-32 left-0 right-0 max-h-64 overflow-y-auto px-6">
+            <div className="max-w-2xl mx-auto space-y-4">
+              {messages.map((msg) => (
+                <motion.div
+                  key={msg.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                >
+                  <div className={`max-w-[80%] ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
+                    <div 
+                      className={`inline-block px-4 py-2 rounded-2xl ${
+                        msg.role === 'user' 
+                          ? 'text-white' 
+                          : 'bg-white/80 backdrop-blur-sm text-gray-900 shadow-sm'
+                      }`}
+                      style={msg.role === 'user' ? { 
+                        background: `linear-gradient(to right, ${chatColor}, ${chatColorEnd})` 
+                      } : undefined}
+                    >
+                      <p className="text-sm">{msg.text}</p>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1 px-2">{formatTime(msg.timestamp)}</p>
+                  </div>
+                </motion.div>
+              ))}
+
+              {/* Current interim transcript */}
+              {currentTranscript && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="flex justify-end"
+                >
+                  <div className="max-w-[80%] text-right">
+                    <div 
+                      className="inline-block px-4 py-2 rounded-2xl text-white opacity-70"
+                      style={{ background: `linear-gradient(to right, ${chatColor}, ${chatColorEnd})` }}
+                    >
+                      <p className="text-sm">{currentTranscript}</p>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              <div ref={messagesEndRef} />
+            </div>
+          </div>
+        </div>
+
+        {/* Microphone permission error */}
+        {hasPermission === false && (
+          <div className="p-6 bg-white/80 backdrop-blur-sm border-t border-gray-200">
+            <p className="text-center text-sm text-red-600">
+              Microphone access denied. Please enable it in your browser settings.
+            </p>
+          </div>
+        )}
+
+        <style>{`
+          .orb-pulse {
+            box-shadow: 0 0 60px rgba(147, 51, 234, 0.3),
+                        0 0 120px rgba(59, 130, 246, 0.2);
+          }
+        `}</style>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
