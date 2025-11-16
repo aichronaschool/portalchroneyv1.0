@@ -40,5 +40,5 @@ externalPort = 8080
 
 [deployment]
 deploymentTarget = "autoscale"
-run = ["node", "dist/index.js"]
+run = ["env", "NODE_ENV=production", "node", "dist/index.js"]
 build = ["npm", "run", "build"]
