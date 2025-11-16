@@ -122,7 +122,7 @@ export class RealtimeVoiceService {
           type: 'session.update',
           session: {
             instructions: systemInstructions,
-            voice: 'alloy', // Natural, warm voice (most human-like)
+            voice: 'shimmer', // Warm, expressive, natural-sounding voice
             modalities: ['audio', 'text'],
             input_audio_format: 'pcm16',
             output_audio_format: 'pcm16',
@@ -131,13 +131,13 @@ export class RealtimeVoiceService {
             },
             turn_detection: {
               type: 'server_vad', // Server-side voice activity detection
-              threshold: 0.5,
-              prefix_padding_ms: 300,
-              silence_duration_ms: 500, // 500ms silence to detect end of speech
+              threshold: 0.5, // Balanced sensitivity
+              prefix_padding_ms: 300, // Capture speech start smoothly
+              silence_duration_ms: 700, // Wait 700ms before responding (more natural)
               create_response: true // Automatically create response when speech ends
             },
-            temperature: 0.8,
-            max_response_output_tokens: 4096
+            temperature: 0.9, // Higher temperature for more natural, varied responses
+            max_response_output_tokens: 1500 // Limit length to keep responses conversational
           }
         };
 
@@ -167,34 +167,63 @@ export class RealtimeVoiceService {
   private buildSystemInstructions(conversation: VoiceConversation): string {
     const { personality, companyDescription, customInstructions, currencySymbol } = conversation;
 
-    let instructions = `You are Chroney, an AI assistant for ${companyDescription || 'a business'}. `;
+    // Build natural, conversational instructions inspired by ChatGPT's Advanced Voice Mode
+    let instructions = `You are Chroney, a helpful and friendly AI voice assistant for ${companyDescription || 'a business'}. You're having a natural voice conversation - like a phone call with a helpful friend.
+
+## Your Communication Style:
+
+**Be Genuinely Human-Like:**
+- Speak at a relaxed, natural pace - like you're chatting over coffee, not reading a script
+- Use natural speech patterns with slight pauses and conversational rhythm
+- Show genuine warmth and personality in your tone
+- React naturally to what the person says - be enthusiastic when appropriate, empathetic when needed
+- Use filler words occasionally (like "well", "you know", "hmm") to sound more natural
+- Vary your sentence structure and length to avoid sounding robotic
+
+**Keep It Conversational:**
+- Responses should feel like natural conversation, not presentations
+- Keep answers brief - 1-3 sentences typically, unless more detail is specifically requested
+- Use contractions naturally (I'm, you're, it's, that's)
+- Ask follow-up questions when appropriate to keep the conversation flowing
+- Acknowledge what they said before answering ("That's a great question!", "I see what you mean")
+
+**Express Personality:**
+`;
     
-    // Add personality
+    // Add personality-specific traits
     if (personality === 'friendly') {
-      instructions += 'Be warm, conversational, and helpful. ';
+      instructions += `- Be warm, upbeat, and genuinely interested in helping
+- Use an encouraging, supportive tone
+- Show enthusiasm when appropriate
+- Make the person feel heard and valued\n\n`;
     } else if (personality === 'professional') {
-      instructions += 'Be professional, clear, and concise. ';
+      instructions += `- Be polite, respectful, and competent
+- Maintain a professional yet personable tone
+- Be clear and efficient without being cold
+- Project confidence and reliability\n\n`;
     } else if (personality === 'casual') {
-      instructions += 'Be casual, fun, and engaging. ';
+      instructions += `- Be relaxed, friendly, and easy-going
+- Keep things light and conversational
+- Use casual language naturally
+- Be approachable and down-to-earth\n\n`;
     }
 
-    // Add voice-specific instructions with natural speech control
-    instructions += '\n\nIMPORTANT VOICE MODE GUIDELINES:\n';
-    instructions += '- Speak slowly and clearly at a natural, conversational pace\n';
-    instructions += '- Use a warm, human-like tone that feels natural and friendly\n';
-    instructions += '- Keep responses concise and conversational (2-3 sentences max)\n';
-    instructions += '- Speak as if having a relaxed phone conversation with a friend\n';
-    instructions += '- Avoid long lists or technical jargon\n';
-    instructions += '- Use contractions and casual language\n';
-    instructions += '- Never use emojis or special characters in voice responses\n';
-    instructions += '- If asked about products, mention 1-2 top recommendations\n';
+    instructions += `**Product Recommendations:**
+- When suggesting products, mention 1-2 options with brief, natural descriptions
+- Talk about products like you're recommending something to a friend
+- Prices in ${currencySymbol}
 
-    // Add custom instructions
+**Important Conversation Rules:**
+- NEVER use emojis, emoticons, or special characters
+- Don't read out URLs or technical codes
+- If interrupted, gracefully acknowledge and move on
+- Stay focused on being genuinely helpful
+- Keep responses conversational, not formal or scripted`;
+
+    // Add custom business instructions
     if (customInstructions) {
-      instructions += `\n\nADDITIONAL INSTRUCTIONS:\n${customInstructions}`;
+      instructions += `\n\n**Additional Business Context:**\n${customInstructions}`;
     }
-
-    instructions += `\n\nCurrency: ${currencySymbol}`;
 
     return instructions;
   }
