@@ -534,6 +534,14 @@ export class DatabaseStorage implements IStorage {
     return account?.openaiApiKey || null;
   }
 
+  async getBusinessAccountDeepgramKey(id: string): Promise<string | null> {
+    const [account] = await db
+      .select({ deepgramApiKey: businessAccounts.deepgramApiKey })
+      .from(businessAccounts)
+      .where(eq(businessAccounts.id, id));
+    return account?.deepgramApiKey || null;
+  }
+
   // Conversation methods
   async createConversation(insertConversation: InsertConversation): Promise<Conversation> {
     const [conversation] = await db

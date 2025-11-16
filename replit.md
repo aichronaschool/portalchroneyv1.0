@@ -28,6 +28,9 @@ Preferred communication style: Simple, everyday language.
 - UI displays masked API keys (last 4 characters only) for security
 - Separate forms for each API key with show/hide toggle functionality
 - Backend validates and encrypts all API keys before storage
+- Voice mode now uses business-specific Deepgram API keys (decrypted at runtime)
+- Added `getBusinessAccountDeepgramKey` storage method for fetching encrypted keys
+- Updated WebSocket voice handler to fetch and decrypt business-specific API keys
 
 ## System Architecture
 

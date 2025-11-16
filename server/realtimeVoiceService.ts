@@ -56,9 +56,10 @@ export class RealtimeVoiceService {
     try {
       const settings = await storage.getWidgetSettings(businessAccountId);
       const businessAccount = await storage.getBusinessAccount(businessAccountId);
-      const openaiApiKey = await storage.getBusinessAccountOpenAIKey(businessAccountId);
+      const encryptedOpenaiApiKey = await storage.getBusinessAccountOpenAIKey(businessAccountId);
+      const encryptedDeepgramApiKey = await storage.getBusinessAccountDeepgramKey(businessAccountId);
 
-      if (!openaiApiKey) {
+      if (!encryptedOpenaiApiKey) {
         this.sendError(ws, 'OpenAI API key not configured for this business account');
         ws.close();
         return;
@@ -70,14 +71,20 @@ export class RealtimeVoiceService {
         return;
       }
 
-      if (!this.deepgramApiKey) {
+      // Check for business-specific Deepgram key first, then fall back to global env variable
+      if (!encryptedDeepgramApiKey && !this.deepgramApiKey) {
         this.sendError(ws, 'Deepgram API key not configured');
         ws.close();
         return;
       }
 
+      // Decrypt API keys
+      const { decrypt } = await import('./services/encryptionService');
+      const openaiApiKey = decrypt(encryptedOpenaiApiKey);
+      const deepgramApiKey = encryptedDeepgramApiKey ? decrypt(encryptedDeepgramApiKey) : this.deepgramApiKey;
+
       const conversationKey = `${userId}_${businessAccountId}_${Date.now()}`;
-      const deepgram = createClient(this.deepgramApiKey);
+      const deepgram = createClient(deepgramApiKey);
 
       // AUDIO FORMAT HANDLING:
       // - Client sends audio/webm with Opus codec (from MediaRecorder)
@@ -100,7 +107,7 @@ export class RealtimeVoiceService {
         ws,
         businessAccountId,
         userId,
-        deepgramApiKey: this.deepgramApiKey,
+        deepgramApiKey,
         openaiApiKey,
         sttConnection,
         ttsConnection: null,
