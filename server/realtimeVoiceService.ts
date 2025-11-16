@@ -373,7 +373,8 @@ export class RealtimeVoiceService {
           model: 'aura-2-luna-en', // Natural, human-sounding voice (calm & empathetic)
           encoding: 'linear16',
           sample_rate: 48000, // Match client AudioContext for smooth playback
-          container: 'none'
+          container: 'none',
+          speed: 1.3 // Increase speech speed for more natural, faster delivery (1.0 = normal, 1.3 = 30% faster)
         });
 
         conversation.ttsConnection = ttsConnection;
