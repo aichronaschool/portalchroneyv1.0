@@ -47,7 +47,7 @@ export function VoiceMode({
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const currentAIMessageIdRef = useRef<string | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null>();
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const hasPermissionRef = useRef(false);
   const isOnlineRef = useRef(false);
   
