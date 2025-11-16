@@ -9,7 +9,8 @@ export const businessAccounts = pgTable("business_accounts", {
   name: text("name").notNull(),
   website: text("website").notNull(), // Mandatory website URL for the business
   description: text("description").default(""),
-  openaiApiKey: text("openai_api_key"), // Business-specific OpenAI API key
+  openaiApiKey: text("openai_api_key"), // Business-specific OpenAI API key (encrypted)
+  deepgramApiKey: text("deepgram_api_key"), // Business-specific Deepgram API key (encrypted)
   status: text("status").notNull().default("active"), // 'active' | 'suspended'
   shopifyAutoSyncEnabled: text("shopify_auto_sync_enabled").notNull().default("false"), // 'true' | 'false'
   shopifySyncFrequency: numeric("shopify_sync_frequency", { precision: 5, scale: 0 }).default("24"), // Sync frequency in hours (6, 12, 24, 48)

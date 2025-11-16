@@ -1004,11 +1004,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // SuperAdmin: Update API settings (OpenAI API key and currency) for a business account
+  // SuperAdmin: Update API settings (OpenAI API key, Deepgram API key, and currency) for a business account
   app.patch("/api/business-accounts/:id/api-settings", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
       const { id } = req.params;
-      const { openaiApiKey, currency } = req.body;
+      const { openaiApiKey, deepgramApiKey, currency } = req.body;
       
       // Verify business account exists
       const businessAccount = await storage.getBusinessAccount(id);
@@ -1019,9 +1019,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Update OpenAI API key if provided (encrypted in storage layer)
       if (openaiApiKey !== undefined) {
         if (openaiApiKey && typeof openaiApiKey !== 'string') {
-          return res.status(400).json({ error: "API key must be a string" });
+          return res.status(400).json({ error: "OpenAI API key must be a string" });
         }
         await storage.updateBusinessAccountOpenAIKey(id, openaiApiKey || null);
+      }
+      
+      // Update Deepgram API key if provided (encrypted in storage layer)
+      if (deepgramApiKey !== undefined) {
+        if (deepgramApiKey && typeof deepgramApiKey !== 'string') {
+          return res.status(400).json({ error: "Deepgram API key must be a string" });
+        }
+        await storage.updateBusinessAccountDeepgramKey(id, deepgramApiKey || null);
       }
       
       // Update currency in widget settings if provided
@@ -1040,10 +1048,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updated = await storage.getBusinessAccount(id);
       const widgetSettings = await storage.getWidgetSettings(id);
       
-      // Return masked API key for security
+      // Return masked API keys for security
       res.json({
         businessAccountId: updated!.id,
         openaiApiKey: updated!.openaiApiKey ? `sk-...${updated!.openaiApiKey.slice(-4)}` : null,
+        deepgramApiKey: updated!.deepgramApiKey ? `...${updated!.deepgramApiKey.slice(-4)}` : null,
         currency: widgetSettings?.currency || "USD",
       });
     } catch (error: any) {
@@ -1064,12 +1073,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const widgetSettings = await storage.getWidgetSettings(id);
       
-      // Return masked API key for security
+      // Return masked API keys for security
       res.json({
         businessAccountId: businessAccount.id,
         businessName: businessAccount.name,
         openaiApiKey: businessAccount.openaiApiKey ? `sk-...${businessAccount.openaiApiKey.slice(-4)}` : null,
-        hasApiKey: !!businessAccount.openaiApiKey,
+        hasOpenAIKey: !!businessAccount.openaiApiKey,
+        deepgramApiKey: businessAccount.deepgramApiKey ? `...${businessAccount.deepgramApiKey.slice(-4)}` : null,
+        hasDeepgramKey: !!businessAccount.deepgramApiKey,
         currency: widgetSettings?.currency || "USD",
       });
     } catch (error: any) {

@@ -95,6 +95,7 @@ export interface IStorage {
   updateBusinessAccountStatus(id: string, status: string): Promise<BusinessAccount>;
   updateBusinessAccountFeatures(id: string, features: Partial<{ shopifyEnabled: string; appointmentsEnabled: string }>): Promise<BusinessAccount>;
   updateBusinessAccountOpenAIKey(id: string, apiKey: string | null): Promise<BusinessAccount>;
+  updateBusinessAccountDeepgramKey(id: string, apiKey: string | null): Promise<BusinessAccount>;
   getBusinessAnalytics(businessAccountId?: string): Promise<any[]>;
   
   // Conversation methods
@@ -418,6 +419,25 @@ export class DatabaseStorage implements IStorage {
     const [account] = await db
       .update(businessAccounts)
       .set({ openaiApiKey: encryptedKey, updatedAt: new Date() })
+      .where(eq(businessAccounts.id, id))
+      .returning();
+    
+    if (!account) {
+      throw new Error("Business account not found");
+    }
+    
+    return account;
+  }
+
+  async updateBusinessAccountDeepgramKey(id: string, apiKey: string | null): Promise<BusinessAccount> {
+    const { encrypt } = await import('./services/encryptionService');
+    
+    // Encrypt the API key if provided, otherwise set to null
+    const encryptedKey = apiKey ? encrypt(apiKey) : null;
+    
+    const [account] = await db
+      .update(businessAccounts)
+      .set({ deepgramApiKey: encryptedKey, updatedAt: new Date() })
       .where(eq(businessAccounts.id, id))
       .returning();
     
