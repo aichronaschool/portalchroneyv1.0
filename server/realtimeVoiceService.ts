@@ -92,7 +92,8 @@ export class RealtimeVoiceService {
   }
 
   private async connectToOpenAI(conversationKey: string, conversation: VoiceConversation) {
-    const url = 'wss://api.openai.com/v1/realtime?model=gpt-4o-mini-realtime-preview-2024-12-17';
+    // Using GPT-4o Mini Realtime for cost-effective voice conversations
+    const url = 'wss://api.openai.com/v1/realtime?model=gpt-4o-mini-realtime-preview';
     
     console.log('[RealtimeVoice] Connecting to OpenAI Realtime API...');
 
