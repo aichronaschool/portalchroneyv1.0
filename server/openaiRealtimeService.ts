@@ -2,7 +2,8 @@
  * Optimized OpenAI Realtime Voice API Integration
  * - Direct binary PCM16 streaming (no base64 overhead)
  * - Low latency buffering (10-20ms chunks)
- * - Server-side VAD (no Whisper needed)
+ * - Server-side VAD (Voice Activity Detection)
+ * - Built-in transcription (OpenAI handles Whisper internally)
  * - Efficient audio pipeline for <100ms latency
  */
 
