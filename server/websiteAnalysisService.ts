@@ -1032,8 +1032,9 @@ CRITICAL: Do NOT remove any existing data. Only add to it and update when necess
       const metaDescription = $('meta[name="description"]').attr('content') || '';
       const ogDescription = $('meta[property="og:description"]').attr('content') || '';
       
+      // Extract content from multiple sources for comprehensive analysis
       let mainContent = '';
-      const mainSelectors = ['main', 'article', '[role="main"]', '.content', '#content', '.main', '#main', 'body'];
+      const mainSelectors = ['main', 'article', '[role="main"]', '.content', '#content', '.main', '#main'];
       for (const selector of mainSelectors) {
         const element = $(selector).first();
         if (element.length > 0) {
@@ -1042,9 +1043,27 @@ CRITICAL: Do NOT remove any existing data. Only add to it and update when necess
         }
       }
 
-      const headerContent = $('header, .header, [role="banner"]').text() || '';
+      // If no main content found, extract from sections and divs
+      if (!mainContent || mainContent.length < 200) {
+        const sections = $('section, [class*="section"], [class*="content"], [id*="content"]')
+          .map((_, el) => $(el).text().trim())
+          .get()
+          .filter(text => text.length > 50)
+          .join(' ');
+        if (sections) mainContent = sections;
+      }
+
+      // Fallback to body if still no content
+      if (!mainContent || mainContent.length < 200) {
+        mainContent = $('body').text();
+      }
+
+      const headerContent = $('header, .header, nav, .nav, [role="banner"], [role="navigation"]').text() || '';
       const footerContent = $('footer, .footer, [role="contentinfo"]').text() || '';
-      const headings = $('h1, h2, h3').map((_, el) => $(el).text().trim()).get().join(' | ');
+      const headings = $('h1, h2, h3, h4').map((_, el) => $(el).text().trim()).get().filter(h => h.length > 0).join(' | ');
+      
+      // Extract all paragraphs for additional context
+      const paragraphs = $('p').map((_, el) => $(el).text().trim()).get().filter(p => p.length > 20).join(' ');
 
       const fullContent = `
         Title: ${title}
@@ -1053,25 +1072,28 @@ CRITICAL: Do NOT remove any existing data. Only add to it and update when necess
         
         Headings: ${headings}
         
-        Header Section:
+        Header & Navigation:
         ${headerContent}
         
         Main Content:
         ${mainContent}
         
-        Footer Section:
+        Paragraphs:
+        ${paragraphs}
+        
+        Footer:
         ${footerContent}
       `;
 
       const cleanedContent = fullContent
         .replace(/\s+/g, ' ')
         .trim()
-        .substring(0, 25000);
+        .substring(0, 50000);
 
       console.log('[Cheerio] Extracted content length:', cleanedContent.length);
 
       // If content is too short, the site is likely JavaScript-heavy
-      if (cleanedContent.length < 500) {
+      if (cleanedContent.length < 300) {
         throw new Error('This website appears to be JavaScript-heavy and cannot be analyzed. Website analysis works best with standard HTML sites. Please ensure your key business information is available in regular HTML pages.');
       }
 
@@ -1245,7 +1267,7 @@ CRITICAL: Do NOT remove any existing data. Only add to it and update when necess
       console.log('[Cheerio] Extracted content length:', cleanedContent.length);
 
       // If content is too short, the site is likely JavaScript-heavy
-      if (cleanedContent.length < 500) {
+      if (cleanedContent.length < 300) {
         throw new Error('This website appears to be JavaScript-heavy and cannot be analyzed. Website analysis works best with standard HTML sites. Please ensure your key business information is available in regular HTML pages.');
       }
 
