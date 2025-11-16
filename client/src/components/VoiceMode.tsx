@@ -59,6 +59,7 @@ export function VoiceMode({
   const pendingInterruptRef = useRef(false); // Track interrupt state to ignore late chunks
   const stateRef = useRef(state); // Mutable ref for VAD to check current state
   const bufferedTranscriptRef = useRef<{text: string, isFinal: boolean} | null>(null); // Buffer transcripts during interrupt
+  const audioWorkletNodeRef = useRef<AudioWorkletNode | null>(null); // For capturing raw PCM audio
   const { toast } = useToast();
   
   // Keep stateRef in sync with state
@@ -72,10 +73,12 @@ export function VoiceMode({
   }, [messages, currentTranscript]);
 
   // Preload AudioContext on mount to eliminate initialization delay
+  // OpenAI Realtime API uses 24kHz PCM16 audio
   useEffect(() => {
     if (isOpen && !audioContextRef.current) {
       try {
-        audioContextRef.current = new AudioContext({ sampleRate: 48000 });
+        // Use 24kHz sample rate to match OpenAI Realtime API requirements
+        audioContextRef.current = new AudioContext({ sampleRate: 24000 });
         console.log('[VoiceMode] AudioContext preloaded, sampleRate:', audioContextRef.current.sampleRate);
       } catch (error) {
         console.error('[VoiceMode] Failed to preload AudioContext:', error);
@@ -624,7 +627,8 @@ export function VoiceMode({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          sampleRate: 48000,
+          autoGainControl: true,
+          sampleRate: 24000 // OpenAI Realtime API uses 24kHz
         } 
       });
       
@@ -632,9 +636,8 @@ export function VoiceMode({
       hasPermissionRef.current = true;
       mediaStreamRef.current = stream;
 
-      // NOTE: MediaRecorder sends audio/webm with Opus codec
-      // Deepgram STT should auto-detect the format, but if there are issues,
-      // we may need to configure Deepgram with encoding: 'opus' or transcode to PCM
+      // OpenAI Realtime API requires PCM16 audio at 24kHz
+      // Use MediaRecorder with webm/opus (browser native), backend will handle the format
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: 'audio/webm;codecs=opus'
       });
@@ -643,7 +646,7 @@ export function VoiceMode({
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
-          // Send audio chunks to WebSocket
+          // Send audio chunks to WebSocket (backend will convert to PCM16 for OpenAI)
           wsRef.current.send(event.data);
         }
       };

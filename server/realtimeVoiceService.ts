@@ -1,516 +1,399 @@
-import { createClient, LiveTranscriptionEvents, LiveTTSEvents } from '@deepgram/sdk';
 import WebSocket from 'ws';
 import { storage } from './storage';
-import { chatService } from './chatService';
-import type { ChatContext } from './chatService';
 import { conversationMemory } from './conversationMemory';
 
-// Maximum queue size to prevent unbounded growth
-const MAX_QUEUE_SIZE = 5;
-
-interface TranscriptQueueEntry {
-  text: string;
-  isFinal: boolean;
-}
-
 interface VoiceConversation {
-  ws: WebSocket;
+  clientWs: WebSocket; // WebSocket to client (browser)
+  openaiWs: WebSocket | null; // WebSocket to OpenAI Realtime API
   businessAccountId: string;
   userId: string;
-  deepgramApiKey: string;
   openaiApiKey: string;
-  sttConnection: any;
-  ttsConnection: any;
-  isProcessing: boolean;
-  interrupted: boolean; // Flag to stop ongoing AI stream
-  currentTranscript: string;
-  transcriptQueue: TranscriptQueueEntry[]; // Queue for pending transcripts with metadata
+  sessionId: string | null;
   personality?: string;
   companyDescription?: string;
   currency?: string;
   currencySymbol?: string;
   customInstructions?: string;
+  isProcessing: boolean;
 }
 
 export class RealtimeVoiceService {
   private conversations: Map<string, VoiceConversation> = new Map();
-  private deepgramApiKey: string;
 
   constructor() {
-    const apiKey = process.env.DEEPGRAM_API_KEY;
-    if (!apiKey) {
-      console.warn('[RealtimeVoice] Deepgram API key not configured. Voice features will be disabled.');
-      this.deepgramApiKey = '';
-    } else {
-      this.deepgramApiKey = apiKey;
-    }
-  }
-
-  /**
-   * Clean text for TTS to make it sound more natural
-   * - Removes emojis (so TTS doesn't say "blush" etc)
-   * - Removes excessive punctuation
-   * - Preserves natural pauses with commas and periods
-   */
-  private cleanTextForTTS(text: string): string {
-    // Remove emojis by filtering out non-BMP characters (emojis)
-    // This is a simple and reliable approach that works across all platforms
-    let cleanedText = text
-      .split('')
-      .filter(char => {
-        const code = char.codePointAt(0);
-        if (!code) return true;
-        // Remove characters outside Basic Multilingual Plane (most emojis)
-        // Also remove common emoji-related Unicode ranges
-        return code < 0x1F000 || (code > 0x1FFFF && code < 0x2300);
-      })
-      .join('');
-    
-    // Remove excessive punctuation marks (but keep single ones for natural pauses)
-    cleanedText = cleanedText.replace(/[!]{2,}/g, '!'); // Multiple exclamations -> single
-    cleanedText = cleanedText.replace(/[?]{2,}/g, '?'); // Multiple questions -> single
-    cleanedText = cleanedText.replace(/[.]{3,}/g, '...'); // Keep ellipsis natural
-    
-    // Remove markdown formatting that TTS might read out
-    cleanedText = cleanedText.replace(/\*\*/g, ''); // Remove bold markers
-    cleanedText = cleanedText.replace(/\*/g, ''); // Remove italic markers
-    cleanedText = cleanedText.replace(/`/g, ''); // Remove code markers
-    
-    // Trim whitespace and remove extra spaces
-    cleanedText = cleanedText.trim().replace(/\s+/g, ' ');
-    
-    return cleanedText;
+    console.log('[RealtimeVoice] Service initialized with OpenAI Realtime API');
   }
 
   isConfigured(): boolean {
-    return !!this.deepgramApiKey;
+    // Always configured since we only need OpenAI API key (no Deepgram needed)
+    return true;
   }
 
-  async handleConnection(ws: WebSocket, businessAccountId: string, userId: string) {
+  async handleConnection(clientWs: WebSocket, businessAccountId: string, userId: string) {
     console.log('[RealtimeVoice] New connection:', { businessAccountId, userId });
 
     try {
       const settings = await storage.getWidgetSettings(businessAccountId);
       const businessAccount = await storage.getBusinessAccount(businessAccountId);
       const encryptedOpenaiApiKey = await storage.getBusinessAccountOpenAIKey(businessAccountId);
-      const encryptedDeepgramApiKey = await storage.getBusinessAccountDeepgramKey(businessAccountId);
 
       if (!encryptedOpenaiApiKey) {
-        this.sendError(ws, 'OpenAI API key not configured for this business account');
-        ws.close();
+        this.sendError(clientWs, 'OpenAI API key not configured for this business account');
+        clientWs.close();
         return;
       }
 
       if (!businessAccount) {
-        this.sendError(ws, 'Business account not found');
-        ws.close();
+        this.sendError(clientWs, 'Business account not found');
+        clientWs.close();
         return;
       }
 
-      // Check for business-specific Deepgram key first, then fall back to global env variable
-      if (!encryptedDeepgramApiKey && !this.deepgramApiKey) {
-        this.sendError(ws, 'Deepgram API key not configured');
-        ws.close();
-        return;
-      }
-
-      // Decrypt API keys
+      // Decrypt API key
       const { decrypt } = await import('./services/encryptionService');
       const openaiApiKey = decrypt(encryptedOpenaiApiKey);
-      const deepgramApiKey = encryptedDeepgramApiKey ? decrypt(encryptedDeepgramApiKey) : this.deepgramApiKey;
 
       const conversationKey = `${userId}_${businessAccountId}_${Date.now()}`;
-      const deepgram = createClient(deepgramApiKey);
 
-      // AUDIO FORMAT HANDLING:
-      // - Client sends audio/webm with Opus codec (from MediaRecorder)
-      // - Deepgram's nova-3 model supports Opus format natively
-      // - Using 'encoding' parameter to explicitly specify the format for better compatibility
-      // - Deepgram will handle the WebM container and Opus codec automatically
-      const sttConnection = deepgram.listen.live({
-        model: 'nova-3',
-        language: 'multi',
-        encoding: 'opus', // Explicitly specify Opus encoding for WebM audio from MediaRecorder
-        punctuate: true,
-        interim_results: true,
-        endpointing: 300, // Reduced from 500ms for faster turn detection
-        utterance_end_ms: 1000, // Force-end utterances after 1 second for better responsiveness
-        smart_format: true,
-        utterances: true
-      });
-
+      // Create conversation object (OpenAI WebSocket will be created when needed)
       const conversation: VoiceConversation = {
-        ws,
+        clientWs,
+        openaiWs: null,
         businessAccountId,
         userId,
-        deepgramApiKey,
         openaiApiKey,
-        sttConnection,
-        ttsConnection: null,
-        isProcessing: false,
-        interrupted: false,
-        currentTranscript: '',
-        transcriptQueue: [], // Initialize empty queue for pending transcripts
+        sessionId: null,
         personality: settings?.personality || 'friendly',
         companyDescription: businessAccount.description || '',
         currency: settings?.currency || 'USD',
         currencySymbol: settings?.currency === 'USD' ? '$' : '€',
-        customInstructions: settings?.customInstructions || undefined
+        customInstructions: settings?.customInstructions || undefined,
+        isProcessing: false
       };
 
       this.conversations.set(conversationKey, conversation);
 
-      this.setupSTTHandlers(conversationKey, conversation);
+      // Connect to OpenAI Realtime API
+      await this.connectToOpenAI(conversationKey, conversation);
 
-      this.setupWebSocketHandlers(conversationKey, conversation);
+      // Setup client WebSocket handlers
+      this.setupClientHandlers(conversationKey, conversation);
 
-      this.sendMessage(ws, { type: 'ready' });
+      // Send ready signal to client
+      this.sendToClient(clientWs, { type: 'ready' });
 
       console.log('[RealtimeVoice] Connection established:', conversationKey);
 
     } catch (error: any) {
       console.error('[RealtimeVoice] Connection error:', error);
-      this.sendError(ws, error.message || 'Failed to initialize voice conversation');
-      ws.close();
+      this.sendError(clientWs, error.message || 'Failed to initialize voice conversation');
+      clientWs.close();
     }
   }
 
-  private setupSTTHandlers(conversationKey: string, conversation: VoiceConversation) {
-    const { sttConnection, ws } = conversation;
+  private async connectToOpenAI(conversationKey: string, conversation: VoiceConversation) {
+    const url = 'wss://api.openai.com/v1/realtime?model=gpt-4o-mini-realtime-preview-2024-12-17';
+    
+    console.log('[RealtimeVoice] Connecting to OpenAI Realtime API...');
 
-    sttConnection.on(LiveTranscriptionEvents.Open, () => {
-      console.log('[RealtimeVoice STT] Connection opened');
-    });
-
-    sttConnection.on(LiveTranscriptionEvents.Transcript, async (data: any) => {
-      const transcript = data.channel?.alternatives?.[0]?.transcript;
-      const isFinal = data.is_final;
-
-      if (transcript && transcript.trim().length > 0) {
-        console.log(`[RealtimeVoice STT] ${isFinal ? 'Final' : 'Interim'}:`, transcript);
-
-        this.sendMessage(ws, {
-          type: 'transcript',
-          text: transcript,
-          isFinal
-        });
-
-        // Only process FINAL transcripts - interims are for display only
-        if (!isFinal) {
-          return;
-        }
-
-        // Enforce queue limit with proper back-pressure (finals only in queue)
-        if (conversation.transcriptQueue.length >= MAX_QUEUE_SIZE) {
-          // Queue is full - reject new final transcript
-          console.warn('[RealtimeVoice] Queue saturated - rejecting new final transcript');
-          conversation.ws.send(JSON.stringify({ 
-            type: 'busy',
-            message: 'Processing previous requests, please wait before speaking again...'
-          }));
-          return; // Reject - do not add to queue
-        }
-        
-        // Add final transcript to queue
-        conversation.transcriptQueue.push({ text: transcript, isFinal: true });
-        
-        // Notify client if queue is getting full (80% capacity)
-        if (conversation.transcriptQueue.length >= Math.floor(MAX_QUEUE_SIZE * 0.8)) {
-          conversation.ws.send(JSON.stringify({ 
-            type: 'processing_load', 
-            queueSize: conversation.transcriptQueue.length 
-          }));
-        }
-        
-        // Start processing queue if not already processing
-        if (!conversation.isProcessing) {
-          this.processTranscriptQueue(conversationKey, conversation);
-        }
+    const openaiWs = new WebSocket(url, {
+      headers: {
+        'Authorization': `Bearer ${conversation.openaiApiKey}`,
+        'OpenAI-Beta': 'realtime=v1'
       }
     });
 
-    sttConnection.on(LiveTranscriptionEvents.Error, (error: any) => {
-      console.error('[RealtimeVoice STT] Error:', JSON.stringify(error, null, 2));
-      this.sendError(ws, 'Speech recognition error: ' + (error.message || 'Unknown error'));
-    });
+    conversation.openaiWs = openaiWs;
 
-    sttConnection.on(LiveTranscriptionEvents.Close, (event: any) => {
-      console.log('[RealtimeVoice STT] Connection closed:', event);
-      // If STT closes unexpectedly, notify the client
-      if (conversation.ws.readyState === WebSocket.OPEN) {
-        this.sendMessage(ws, { 
-          type: 'error', 
-          message: 'Speech recognition connection closed unexpectedly' 
-        });
-      }
-    });
-  }
+    return new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('OpenAI connection timeout'));
+      }, 10000);
 
-  private setupWebSocketHandlers(conversationKey: string, conversation: VoiceConversation) {
-    const { ws } = conversation;
+      openaiWs.on('open', () => {
+        clearTimeout(timeout);
+        console.log('[RealtimeVoice] Connected to OpenAI Realtime API');
 
-    ws.on('message', async (message: WebSocket.Data) => {
-      try {
-        if (message instanceof Buffer) {
-          if (conversation.sttConnection && conversation.sttConnection.getReadyState() === 1) {
-            conversation.sttConnection.send(message);
+        // Build system instructions
+        const systemInstructions = this.buildSystemInstructions(conversation);
+
+        // Configure session
+        const sessionConfig = {
+          type: 'session.update',
+          session: {
+            instructions: systemInstructions,
+            voice: 'verse', // Natural, friendly voice
+            modalities: ['audio', 'text'],
+            input_audio_format: 'pcm16',
+            output_audio_format: 'pcm16',
+            input_audio_transcription: {
+              model: 'whisper-1'
+            },
+            turn_detection: {
+              type: 'server_vad', // Server-side voice activity detection
+              threshold: 0.5,
+              prefix_padding_ms: 300,
+              silence_duration_ms: 500, // 500ms silence to detect end of speech
+              create_response: true // Automatically create response when speech ends
+            },
+            temperature: 0.8,
+            max_response_output_tokens: 4096
           }
-        } else {
-          const data = JSON.parse(message.toString());
-          await this.handleMessage(conversationKey, conversation, data);
+        };
+
+        openaiWs.send(JSON.stringify(sessionConfig));
+        console.log('[RealtimeVoice] Session configured');
+        resolve();
+      });
+
+      openaiWs.on('message', (data: any) => {
+        this.handleOpenAIMessage(conversationKey, conversation, data);
+      });
+
+      openaiWs.on('error', (error) => {
+        clearTimeout(timeout);
+        console.error('[RealtimeVoice] OpenAI WebSocket error:', error);
+        this.sendError(conversation.clientWs, 'Voice service error');
+        reject(error);
+      });
+
+      openaiWs.on('close', () => {
+        console.log('[RealtimeVoice] OpenAI WebSocket closed');
+        conversation.openaiWs = null;
+      });
+    });
+  }
+
+  private buildSystemInstructions(conversation: VoiceConversation): string {
+    const { personality, companyDescription, customInstructions, currencySymbol } = conversation;
+
+    let instructions = `You are Chroney, an AI assistant for ${companyDescription || 'a business'}. `;
+    
+    // Add personality
+    if (personality === 'friendly') {
+      instructions += 'Be warm, conversational, and helpful. ';
+    } else if (personality === 'professional') {
+      instructions += 'Be professional, clear, and concise. ';
+    } else if (personality === 'casual') {
+      instructions += 'Be casual, fun, and engaging. ';
+    }
+
+    // Add voice-specific instructions
+    instructions += '\n\nIMPORTANT VOICE MODE GUIDELINES:\n';
+    instructions += '- Keep responses concise and conversational (2-3 sentences max)\n';
+    instructions += '- Speak naturally as if having a phone conversation\n';
+    instructions += '- Avoid long lists or technical jargon\n';
+    instructions += '- Use contractions and casual language\n';
+    instructions += '- Never use emojis or special characters in voice responses\n';
+    instructions += '- If asked about products, mention 1-2 top recommendations\n';
+
+    // Add custom instructions
+    if (customInstructions) {
+      instructions += `\n\nADDITIONAL INSTRUCTIONS:\n${customInstructions}`;
+    }
+
+    instructions += `\n\nCurrency: ${currencySymbol}`;
+
+    return instructions;
+  }
+
+  private handleOpenAIMessage(conversationKey: string, conversation: VoiceConversation, data: any) {
+    try {
+      const event = JSON.parse(data.toString());
+      console.log('[RealtimeVoice] OpenAI event:', event.type);
+
+      switch (event.type) {
+        case 'session.created':
+          console.log('[RealtimeVoice] Session created:', event.session.id);
+          conversation.sessionId = event.session.id;
+          break;
+
+        case 'session.updated':
+          console.log('[RealtimeVoice] Session updated');
+          break;
+
+        case 'input_audio_buffer.speech_started':
+          console.log('[RealtimeVoice] User started speaking');
+          this.sendToClient(conversation.clientWs, { type: 'speech_started' });
+          break;
+
+        case 'input_audio_buffer.speech_stopped':
+          console.log('[RealtimeVoice] User stopped speaking');
+          break;
+
+        case 'input_audio_buffer.committed':
+          console.log('[RealtimeVoice] Audio buffer committed');
+          this.sendToClient(conversation.clientWs, { 
+            type: 'transcript',
+            text: '',
+            isFinal: false
+          });
+          break;
+
+        case 'conversation.item.input_audio_transcription.completed':
+          // User's speech transcribed
+          const userTranscript = event.transcript;
+          console.log('[RealtimeVoice] User transcript:', userTranscript);
+          
+          this.sendToClient(conversation.clientWs, {
+            type: 'transcript',
+            text: userTranscript,
+            isFinal: true
+          });
+          break;
+
+        case 'response.created':
+          console.log('[RealtimeVoice] Response created');
+          conversation.isProcessing = true;
+          break;
+
+        case 'response.output_item.added':
+          console.log('[RealtimeVoice] Output item added');
+          break;
+
+        case 'response.content_part.added':
+          console.log('[RealtimeVoice] Content part added');
+          break;
+
+        case 'response.audio_transcript.delta':
+          // AI's speech transcript chunk
+          const transcriptDelta = event.delta;
+          console.log('[RealtimeVoice] AI transcript delta:', transcriptDelta);
+          
+          this.sendToClient(conversation.clientWs, {
+            type: 'ai_chunk',
+            text: transcriptDelta
+          });
+          break;
+
+        case 'response.audio.delta':
+          // AI's audio chunk (base64 encoded PCM16)
+          const audioDelta = event.delta;
+          
+          // Decode base64 and send binary audio to client
+          const audioBuffer = Buffer.from(audioDelta, 'base64');
+          if (conversation.clientWs.readyState === WebSocket.OPEN) {
+            conversation.clientWs.send(audioBuffer);
+          }
+          break;
+
+        case 'response.audio_transcript.done':
+          console.log('[RealtimeVoice] AI transcript complete');
+          break;
+
+        case 'response.audio.done':
+          console.log('[RealtimeVoice] AI audio complete');
+          break;
+
+        case 'response.done':
+          console.log('[RealtimeVoice] Response complete');
+          conversation.isProcessing = false;
+          
+          this.sendToClient(conversation.clientWs, { type: 'ai_done' });
+          break;
+
+        case 'rate_limits.updated':
+          // Rate limit info - can be logged if needed
+          break;
+
+        case 'error':
+          console.error('[RealtimeVoice] OpenAI error:', event.error);
+          this.sendError(conversation.clientWs, event.error.message || 'Voice processing error');
+          break;
+
+        default:
+          // Log unknown events for debugging
+          console.log('[RealtimeVoice] Unknown event type:', event.type);
+      }
+    } catch (error) {
+      console.error('[RealtimeVoice] Error handling OpenAI message:', error);
+    }
+  }
+
+  private setupClientHandlers(conversationKey: string, conversation: VoiceConversation) {
+    const { clientWs, openaiWs } = conversation;
+
+    clientWs.on('message', async (data: any) => {
+      if (data instanceof Buffer) {
+        // Binary audio data from client - forward to OpenAI
+        if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+          // Convert audio to base64 for OpenAI
+          const base64Audio = data.toString('base64');
+          
+          const audioAppend = {
+            type: 'input_audio_buffer.append',
+            audio: base64Audio
+          };
+          
+          openaiWs.send(JSON.stringify(audioAppend));
         }
-      } catch (error: any) {
-        console.error('[RealtimeVoice] Message handling error:', error);
-        this.sendError(ws, 'Failed to process message');
+      } else {
+        // JSON message from client
+        try {
+          const message = JSON.parse(data.toString());
+          await this.handleClientMessage(conversationKey, conversation, message);
+        } catch (error) {
+          console.error('[RealtimeVoice] Error parsing client message:', error);
+        }
       }
     });
 
-    ws.on('close', () => {
-      console.log('[RealtimeVoice] WebSocket closed:', conversationKey);
+    clientWs.on('close', () => {
+      console.log('[RealtimeVoice] Client disconnected');
       this.cleanup(conversationKey);
     });
 
-    ws.on('error', (error) => {
-      console.error('[RealtimeVoice] WebSocket error:', error);
+    clientWs.on('error', (error) => {
+      console.error('[RealtimeVoice] Client WebSocket error:', error);
       this.cleanup(conversationKey);
     });
   }
 
-  private async handleMessage(conversationKey: string, conversation: VoiceConversation, data: any) {
-    switch (data.type) {
+  private async handleClientMessage(
+    conversationKey: string,
+    conversation: VoiceConversation,
+    message: any
+  ) {
+    const { openaiWs } = conversation;
+
+    console.log('[RealtimeVoice] Client message:', message.type);
+
+    switch (message.type) {
       case 'interrupt':
-        console.log('[RealtimeVoice] User interrupted - stopping AI response');
+        // User interrupted AI - cancel current response
+        console.log('[RealtimeVoice] User interrupted AI');
         
-        // Set interrupt flag to stop ongoing stream
-        conversation.interrupted = true;
-        
-        // Stop TTS streaming
-        if (conversation.ttsConnection) {
-          try {
-            conversation.ttsConnection.requestClose();
-            // Do NOT set to null here - let the Close event handler do it
-            // This allows the wait loop to detect in-flight connections
-          } catch (error) {
-            console.error('[RealtimeVoice] Error closing TTS on interrupt:', error);
-          }
+        if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+          openaiWs.send(JSON.stringify({
+            type: 'response.cancel'
+          }));
         }
         
-        // Don't clear transcript queue - preserve any new user speech that arrived during interrupt
-        // The current iteration will exit due to interrupted flag, and new transcripts will be processed
-        // conversation.transcriptQueue = []; // REMOVED - preserve queue
-        
-        // Send acknowledgment
-        this.sendMessage(conversation.ws, {
-          type: 'interrupt_ack',
-          message: 'Stopped, ready for your question'
-        });
-        
-        console.log('[RealtimeVoice] Interrupt handled, ready for new input');
+        conversation.isProcessing = false;
         break;
 
-      case 'stop_conversation':
-        console.log('[RealtimeVoice] Stopping conversation');
-        this.cleanup(conversationKey);
+      case 'commit_audio':
+        // Manual commit (if not using server VAD)
+        if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+          openaiWs.send(JSON.stringify({
+            type: 'input_audio_buffer.commit'
+          }));
+        }
         break;
 
       default:
-        console.warn('[RealtimeVoice] Unknown message type:', data.type);
+        console.log('[RealtimeVoice] Unknown client message type:', message.type);
     }
   }
 
-  private async processTranscriptQueue(conversationKey: string, conversation: VoiceConversation) {
-    // Process transcripts from queue one at a time
-    while (conversation.transcriptQueue.length > 0) {
-      const entry = conversation.transcriptQueue.shift()!;
-      const transcript = entry.text;
-      conversation.isProcessing = true;
-      
-      // Wait for previous TTS to fully close if interrupted
-      if (conversation.interrupted && conversation.ttsConnection) {
-        console.log('[RealtimeVoice] Waiting for previous TTS to close after interrupt...');
-        let waitRetries = 0;
-        const MAX_WAIT_RETRIES = 20;
-        while (conversation.ttsConnection && waitRetries < MAX_WAIT_RETRIES) {
-          await new Promise(resolve => setTimeout(resolve, 50));
-          waitRetries++;
-        }
-        
-        // If TTS still not closed, treat as hard failure
-        if (conversation.ttsConnection) {
-          console.error('[RealtimeVoice] TTS failed to close within timeout - aborting');
-          try {
-            conversation.ttsConnection.requestClose();
-            conversation.ttsConnection = null;
-          } catch (error) {
-            console.error('[RealtimeVoice] Error forcing TTS close:', error);
-          }
-          // Keep interrupted=true and skip this transcript
-          this.sendError(conversation.ws, 'Failed to stop previous response');
-          continue; // Skip to next transcript
-        }
-      }
-      
-      // Clear interrupt flag only after previous TTS is confirmed closed
-      conversation.interrupted = false;
-
-      try {
-        console.log('[RealtimeVoice] Processing transcript from queue:', transcript, '(final:', entry.isFinal, ')');
-
-        const chatContext: ChatContext = {
-          userId: conversation.userId,
-          businessAccountId: conversation.businessAccountId,
-          openaiApiKey: conversation.openaiApiKey,
-          personality: conversation.personality,
-          companyDescription: conversation.companyDescription,
-          currency: conversation.currency,
-          currencySymbol: conversation.currencySymbol,
-          customInstructions: conversation.customInstructions
-        };
-
-        // Initialize TTS connection once for streaming chunks
-        const deepgram = createClient(conversation.deepgramApiKey);
-        const ttsConnection = deepgram.speak.live({
-          model: 'aura-2-luna-en', // Natural, human-sounding voice (calm & empathetic)
-          encoding: 'linear16',
-          sample_rate: 48000, // Match client AudioContext for smooth playback
-          container: 'none',
-          speed: 1.3 // Increase speech speed for more natural, faster delivery (1.0 = normal, 1.3 = 30% faster)
-        });
-
-        conversation.ttsConnection = ttsConnection;
-        let ttsReady = false;
-
-        // Setup TTS event handlers
-        ttsConnection.on(LiveTTSEvents.Open, () => {
-          console.log('[RealtimeVoice TTS] Connection opened for streaming');
-          ttsReady = true;
-        });
-
-        ttsConnection.on(LiveTTSEvents.Audio, (data: any) => {
-          console.log('[RealtimeVoice TTS] Received audio chunk, size:', data.length);
-          if (conversation.ws.readyState === WebSocket.OPEN) {
-            // Deepgram provides base64 encoded audio
-            const audioBuffer = Buffer.from(data, 'base64');
-            conversation.ws.send(audioBuffer);
-            console.log('[RealtimeVoice TTS] Sent audio chunk to client, size:', audioBuffer.length);
-          }
-        });
-
-        ttsConnection.on(LiveTTSEvents.Flushed, () => {
-          console.log('[RealtimeVoice TTS] Chunk flushed');
-        });
-
-        ttsConnection.on(LiveTTSEvents.Close, () => {
-          console.log('[RealtimeVoice TTS] Connection closed');
-          conversation.ttsConnection = null;
-        });
-
-        ttsConnection.on(LiveTTSEvents.Error, (error: any) => {
-          console.error('[RealtimeVoice TTS] Error:', error);
-          conversation.ttsConnection = null;
-        });
-
-        // Wait for TTS connection to be ready
-        let retries = 0;
-        while (!ttsReady && retries < 50) {
-          await new Promise(resolve => setTimeout(resolve, 100));
-          retries++;
-        }
-
-        if (!ttsReady) {
-          throw new Error('TTS connection timeout');
-        }
-
-        let fullResponse = '';
-        let hasContent = false;
-
-        // Stream AI chunks immediately as they arrive
-        for await (const chunk of chatService.streamMessage(transcript, chatContext)) {
-          // Check if user interrupted
-          if (conversation.interrupted) {
-            console.log('[RealtimeVoice] Stream interrupted by user - stopping');
-            break;
-          }
-          
-          if (chunk.type === 'content') {
-            const textChunk = chunk.data;
-            fullResponse += textChunk;
-            hasContent = true;
-
-            // Send text chunk to client immediately (keep emojis for visual display)
-            this.sendMessage(conversation.ws, {
-              type: 'ai_chunk',
-              text: textChunk
-            });
-
-            // Clean text for TTS (remove emojis, markdown, etc.) to sound natural
-            const cleanedForTTS = this.cleanTextForTTS(textChunk);
-            
-            // Send chunk to TTS immediately for audio generation (only if it has content after cleaning)
-            if (ttsConnection && ttsReady && cleanedForTTS.length > 0) {
-              ttsConnection.sendText(cleanedForTTS);
-            }
-          } else if (chunk.type === 'products') {
-            // Products data - log but don't speak
-            console.log('[RealtimeVoice] Products data received');
-          }
-        }
-
-        // Only send completion if not interrupted
-        if (!conversation.interrupted) {
-          // Flush TTS to ensure all audio is sent
-          if (ttsConnection && ttsReady) {
-            ttsConnection.flush();
-          }
-
-          if (hasContent) {
-            console.log('[RealtimeVoice] Streamed AI response:', fullResponse.substring(0, 100) + '...');
-            
-            // Signal that AI is done speaking
-            this.sendMessage(conversation.ws, { type: 'ai_done' });
-          }
-        } else {
-          console.log('[RealtimeVoice] Skipping ai_done due to interrupt');
-        }
-
-        // Close TTS connection gracefully
-        if (ttsConnection) {
-          // Wait a bit for final audio to be sent before closing
-          await new Promise(resolve => setTimeout(resolve, 500));
-          // Use requestClose() method to properly close the TTS stream
-          ttsConnection.requestClose();
-        }
-
-      } catch (error: any) {
-        console.error('[RealtimeVoice] Processing error:', error);
-        this.sendError(conversation.ws, 'Failed to process voice message');
-        
-        // Clean up TTS connection on error
-        if (conversation.ttsConnection) {
-          try {
-            conversation.ttsConnection.requestClose();
-          } catch (e) {
-            // Ignore cleanup errors
-          }
-          conversation.ttsConnection = null;
-        }
-        // Continue processing remaining transcripts even if one fails
-      }
-    }
-
-    conversation.isProcessing = false;
-    console.log('[RealtimeVoice] Finished processing transcript queue');
-  }
-
-
-  private sendMessage(ws: WebSocket, message: any) {
+  private sendToClient(ws: WebSocket, message: any) {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(message));
     }
   }
 
   private sendError(ws: WebSocket, message: string) {
-    this.sendMessage(ws, { type: 'error', message });
+    this.sendToClient(ws, { type: 'error', message });
   }
 
   private cleanup(conversationKey: string) {
@@ -520,37 +403,21 @@ export class RealtimeVoiceService {
     console.log('[RealtimeVoice] Cleaning up conversation:', conversationKey);
 
     try {
-      if (conversation.sttConnection) {
-        conversation.sttConnection.finish();
+      // Close OpenAI WebSocket
+      if (conversation.openaiWs) {
+        conversation.openaiWs.close();
+        conversation.openaiWs = null;
       }
-    } catch (error) {
-      console.error('[RealtimeVoice] Error closing STT connection:', error);
-    }
 
-    try {
-      if (conversation.ttsConnection) {
-        conversation.ttsConnection.requestClose();
+      // Close client WebSocket if still open
+      if (conversation.clientWs && conversation.clientWs.readyState === WebSocket.OPEN) {
+        conversation.clientWs.close();
       }
     } catch (error) {
-      console.error('[RealtimeVoice] Error closing TTS connection:', error);
-    }
-
-    try {
-      if (conversation.ws.readyState === WebSocket.OPEN) {
-        conversation.ws.close();
-      }
-    } catch (error) {
-      console.error('[RealtimeVoice] Error closing WebSocket:', error);
+      console.error('[RealtimeVoice] Cleanup error:', error);
     }
 
     this.conversations.delete(conversationKey);
-  }
-
-  cleanupAll() {
-    console.log('[RealtimeVoice] Cleaning up all conversations');
-    for (const key of Array.from(this.conversations.keys())) {
-      this.cleanup(key);
-    }
   }
 }
 
