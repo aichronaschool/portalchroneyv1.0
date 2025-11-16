@@ -122,7 +122,7 @@ export class RealtimeVoiceService {
           type: 'session.update',
           session: {
             instructions: systemInstructions,
-            voice: 'verse', // Natural, friendly voice
+            voice: 'alloy', // Natural, warm voice (most human-like)
             modalities: ['audio', 'text'],
             input_audio_format: 'pcm16',
             output_audio_format: 'pcm16',
@@ -178,10 +178,12 @@ export class RealtimeVoiceService {
       instructions += 'Be casual, fun, and engaging. ';
     }
 
-    // Add voice-specific instructions
+    // Add voice-specific instructions with natural speech control
     instructions += '\n\nIMPORTANT VOICE MODE GUIDELINES:\n';
+    instructions += '- Speak slowly and clearly at a natural, conversational pace\n';
+    instructions += '- Use a warm, human-like tone that feels natural and friendly\n';
     instructions += '- Keep responses concise and conversational (2-3 sentences max)\n';
-    instructions += '- Speak naturally as if having a phone conversation\n';
+    instructions += '- Speak as if having a relaxed phone conversation with a friend\n';
     instructions += '- Avoid long lists or technical jargon\n';
     instructions += '- Use contractions and casual language\n';
     instructions += '- Never use emojis or special characters in voice responses\n';
