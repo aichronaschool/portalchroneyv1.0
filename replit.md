@@ -20,9 +20,8 @@ Preferred communication style: Simple, everyday language.
 
 ### SuperAdmin API Keys Enhancement (November 16, 2025)
 - **SuperAdmin-Only Control**: Added comprehensive API Keys management interface in SuperAdmin panel
-- SuperAdmin can now manage three types of settings per business account:
-  - OpenAI API Key (for AI chatbot functionality)
-  - Deepgram API Key (for voice mode features)
+- SuperAdmin can now manage two types of settings per business account:
+  - OpenAI API Key (for AI chatbot and voice mode functionality)
   - Currency (for product pricing display)
 - **Security & Encryption**:
   - All API keys are encrypted using AES-256-GCM encryption and stored in business_accounts table
@@ -31,8 +30,7 @@ Preferred communication style: Simple, everyday language.
   - Backend validates and encrypts all API keys before storage
 - **Implementation Details**:
   - Fixed critical bug: OpenAI keys now properly decrypted before use in chat/AI features via `decryptApiKeyIfNeeded()` in llamaService.ts
-  - Voice mode now uses business-specific Deepgram API keys (decrypted at runtime)
-  - Added `getBusinessAccountDeepgramKey` storage method for fetching encrypted keys
+  - Voice mode uses business-specific OpenAI API keys (decrypted at runtime) via OpenAI Realtime API
   - Updated WebSocket voice handler to fetch and decrypt business-specific API keys
   - All OpenAI API calls (`generateToolAwareResponse`, `continueToolConversation`, `streamToolAwareResponse`, `generateGreeting`) now properly decrypt business API keys
 - **Business User Settings Cleanup**:
@@ -42,7 +40,16 @@ Preferred communication style: Simple, everyday language.
 - **Important Notes**:
   - Startup warnings "API key not configured" are expected and harmless - they check for global env vars, but business-specific keys work perfectly
   - Business-specific API keys take precedence over global environment variables
-  - Database schema includes `openai_api_key`, `deepgram_api_key`, and `currency` columns in business_accounts table
+  - Database schema includes `openai_api_key` and `currency` columns in business_accounts table
+
+### Deepgram Removal (November 18, 2025)
+- **Voice Mode Transition**: Voice mode now exclusively uses OpenAI Realtime API (no Deepgram)
+- Removed all Deepgram-related code and database columns:
+  - Dropped `deepgram_api_key` column from business_accounts table
+  - Removed Deepgram API key management from SuperAdmin panel
+  - Removed Deepgram-related storage methods and API routes
+- **OpenAI Realtime Only**: Voice mode now handles both speech-to-text and text-to-speech through OpenAI's Realtime API
+- All voice features continue to work with enhanced simplicity and unified API key management
 
 ## System Architecture
 
@@ -58,7 +65,7 @@ The backend uses Express.js with Node.js, implementing session-based authenticat
 -   **Insights & Demos**: SuperAdmins have a comprehensive insights dashboard and can create shareable demo pages with token-based public URLs. Business users have an insights dashboard tracking key metrics.
 -   **Shareable Public Chat Links**: Business users can generate and share unique public chat links for unauthenticated access to their AI chatbot, with optional password protection, access control, and tracking. Password protection uses signed cookies with server-side enforcement to prevent bypass attacks.
 -   **Chroney AI Chat**: Powered by OpenAI GPT-4.1 nano, featuring context-aware typing indicators, tool-based function calling (products, FAQs, lead capture, appointment booking), 15-minute conversation memory, and word-by-word streaming.
--   **Real-Time Conversational Voice Mode**: ChatGPT Advanced Voice Mode-style full-screen interface with animated gradient orb, powered by WebSocket-based bidirectional audio streaming. Features zero-latency streaming where AI response chunks are sent to Deepgram TTS immediately as generated (eliminating 1-3 second delays). Architecture: MediaRecorder (WebM/Opus, 50ms timeslice) → WebSocket → Deepgram Nova-3 STT (300ms endpointing, 1s utterance cutoff) → OpenAI streaming → Deepgram Aura-2 TTS → Audio playback queue (5-chunk batching). Performance optimizations include preloaded AudioContext (eliminates 50ms init delay), 50ms MediaRecorder timeslice (faster upload), Nova-3 with 300ms endpointing (200ms faster turn detection), and 5-chunk audio batching (~0.2s buffers matching TTS cadence). Includes production-ready queue back-pressure enforcement (MAX_QUEUE_SIZE=5) with finals-only queueing, explicit busy notifications with UI state recovery, and processing load warnings at 80% capacity. Intelligent interruption handling with Web Audio API-based voice activity detection (VAD) enables natural conversation flow where users can speak over the AI to interrupt responses; includes multi-layer audio dropping guards, transcript buffering, TTS termination guarantees with timeout hardening, and race condition prevention for production-ready barge-in support. Visual states (idle/listening/thinking/speaking), real-time transcript display with interim/final distinction, session-based WebSocket authentication, complete resource cleanup, and full feature parity with text chat (appointments, leads, products, FAQs). Supports 36+ languages with automatic detection, microphone permission handling, and graceful fallback to text-only mode. Voice mode automatically starts recording when opened (after mic permission grant), and microphone auto-restarts after each AI response for continuous conversation without manual interaction. Total latency improvements: ~250-400ms faster end-to-end.
+-   **Real-Time Conversational Voice Mode**: ChatGPT Advanced Voice Mode-style full-screen interface with animated gradient orb, powered by OpenAI Realtime API with WebSocket-based bidirectional audio streaming. Features low-latency bidirectional audio communication with OpenAI's integrated speech-to-text and text-to-speech capabilities. Architecture: MediaRecorder (WebM/Opus, 50ms timeslice) → WebSocket → OpenAI Realtime API (handles STT, AI processing, and TTS) → Audio playback. Visual states (idle/listening/thinking/speaking), real-time transcript display with interim/final distinction, session-based WebSocket authentication, complete resource cleanup, and full feature parity with text chat (appointments, leads, products, FAQs). Supports 36+ languages with automatic detection, microphone permission handling, and graceful fallback to text-only mode. Voice mode automatically starts recording when opened (after mic permission grant), and microphone auto-restarts after each AI response for continuous conversation without manual interaction.
 -   **AI-Powered Appointment Booking**: A comprehensive scheduling system with conversational booking, weekly schedule templates, slot overrides, and a calendar management page. All times are handled in IST.
 -   **Training & Configuration**: Business Users can train Chroney using natural language and customize chatbot appearance and behavior via the Widget Studio (Style, Behavior, Embed tabs with live preview). The Behavior tab includes chat auto-open settings to control whether the widget automatically opens on page load. API keys and currency settings are managed exclusively by SuperAdmin through the API Keys interface.
 -   **Data Management**: Supports product image uploads, optional pricing, intelligent product cataloging with categories/tags/relationships, proactive AI-driven lead capture, and direct FAQ management.
@@ -77,7 +84,7 @@ The backend uses Express.js with Node.js, implementing session-based authenticat
 
 ## External Dependencies
 
--   **AI Services**: OpenAI API (GPT-4.1 nano, GPT-4o, GPT-4o-mini), Deepgram API (Nova-3 for STT with 300ms endpointing + 1s utterance cutoff, Aura-2 for TTS).
+-   **AI Services**: OpenAI API (GPT-4.1 nano for chat, GPT-4o/GPT-4o-mini for analysis, OpenAI Realtime API for voice mode with integrated STT/TTS).
 -   **E-commerce Integration**: Shopify GraphQL Admin API (`@shopify/shopify-api`).
 -   **Database Services**: Neon Serverless PostgreSQL.
 -   **Web Scraping**: cheerio.
